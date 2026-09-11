@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */; };
+		AA1E1000000000000000A003 /* Perf.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A002 /* Perf.swift */; };
+		AA1E1000000000000000A005 /* PerfCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A004 /* PerfCounters.swift */; };
+		AA1E1000000000000000A007 /* PerfFrameMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A006 /* PerfFrameMonitor.swift */; };
+		AA1E1000000000000000A009 /* PopupOpenProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A008 /* PopupOpenProbe.swift */; };
 		0ABDD5122BB47F1E0054963B /* NSWorkspace+ApplicationName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABDD5112BB47F1E0054963B /* NSWorkspace+ApplicationName.swift */; };
 		21FFF308D9217B43FD4C393F /* VoiceOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B21DCA6C3D17E48D33D6E608 /* VoiceOver.swift */; };
 		2F0EC7792E7727E3003E2EA9 /* HeightReaderModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0EC7782E7727E3003E2EA9 /* HeightReaderModifier.swift */; };
@@ -187,6 +192,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfInstrumentationTests.swift; sourceTree = "<group>"; };
+		AA1E1000000000000000A002 /* Perf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Perf.swift; sourceTree = "<group>"; };
+		AA1E1000000000000000A004 /* PerfCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfCounters.swift; sourceTree = "<group>"; };
+		AA1E1000000000000000A006 /* PerfFrameMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfFrameMonitor.swift; sourceTree = "<group>"; };
+		AA1E1000000000000000A008 /* PopupOpenProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupOpenProbe.swift; sourceTree = "<group>"; };
 		088F4DA628BECBC40003AD19 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		0ABDD5112BB47F1E0054963B /* NSWorkspace+ApplicationName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSWorkspace+ApplicationName.swift"; sourceTree = "<group>"; };
 		11680E44DAF848ADB8BA358E /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pt; path = pt.lproj/PinsSettings.strings; sourceTree = "<group>"; };
@@ -759,6 +769,7 @@
 				FFFC00000000000000000004 /* UnsafeForTitleLayoutTests.swift */,
 				DAE2850123225BD90080E394 /* ColorImageTests.swift */,
 				DA360DB21E3DF137005C6F6B /* HistoryTests.swift */,
+				AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */,
 				DA1EDE422045B35300479723 /* HistoryDecoratorTests.swift */,
 				DAFE2DE8268A9B1B00990986 /* HistoryItemTests.swift */,
 				DA384E85232746D800603999 /* SearchTests.swift */,
@@ -840,10 +851,22 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		AA1E1000000000000000A001 /* Performance */ = {
+			isa = PBXGroup;
+			children = (
+				AA1E1000000000000000A002 /* Perf.swift */,
+				AA1E1000000000000000A004 /* PerfCounters.swift */,
+				AA1E1000000000000000A006 /* PerfFrameMonitor.swift */,
+				AA1E1000000000000000A008 /* PopupOpenProbe.swift */,
+			);
+			path = Performance;
+			sourceTree = "<group>";
+		};
 		DAEE38451E3DBEB100DD2966 /* Maccy */ = {
 			isa = PBXGroup;
 			children = (
 				2FBB7A252B5FECBB00C65BBE /* Extensions */,
+				AA1E1000000000000000A001 /* Performance */,
 				DA68F91F28BD819E007E2F25 /* Intents */,
 				DA05B50F2C234C1C006980FE /* Models */,
 				DA3BCB902C3EEC1000B01BC1 /* Observables */,
@@ -1112,6 +1135,7 @@
 				C0FFEE000000000000000003 /* ShortenedTests.swift in Sources */,
 				FFFC00000000000000000003 /* UnsafeForTitleLayoutTests.swift in Sources */,
 				DA360DB31E3DF137005C6F6B /* HistoryTests.swift in Sources */,
+				AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1203,6 +1227,10 @@
 				2F0EC7872E774099003E2EA9 /* PasteStackItemView.swift in Sources */,
 				DA20FA722B082DD600056DD5 /* Notifier.swift in Sources */,
 				2F578C3F2EFFE8720088B759 /* SlideoutController.swift in Sources */,
+				AA1E1000000000000000A003 /* Perf.swift in Sources */,
+				AA1E1000000000000000A005 /* PerfCounters.swift in Sources */,
+				AA1E1000000000000000A007 /* PerfFrameMonitor.swift in Sources */,
+				AA1E1000000000000000A009 /* PopupOpenProbe.swift in Sources */,
 				DAA072DB2C41C5DD006DDFD2 /* FooterItem.swift in Sources */,
 				DA689FC62C1D14F10009B887 /* PopupPosition.swift in Sources */,
 				DA49EE7528B59468002752E0 /* NSRect+Centered.swift in Sources */,

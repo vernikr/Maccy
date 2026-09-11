@@ -106,6 +106,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationDidFinishLaunching(_ aNotification: Notification) {
+    Perf.event(
+      "perf.ready",
+      zone: .popup,
+      "signposts=\(Perf.isEnabled) verbose=\(Perf.isVerbose)"
+    )
+
     migrateUserDefaults()
     disableUnusedGlobalHotkeys()
 
@@ -193,6 +199,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
 
+    Perf.count("popup.click.statusItem")
+    PopupOpenProbe.shared.begin(source: "statusItem")
     panel.toggle(height: AppState.shared.popup.height, at: .statusItem)
   }
 

@@ -159,6 +159,12 @@ class SlideoutController {
     }
 
     cancelAutoOpen()
+
+    Perf.count("preview.toggle")
+    let startedAt = Perf.now()
+    let interval = Perf.begin("preview.toggle", zone: .preview)
+    Perf.event("preview.toggle.begin", zone: .preview, "trigger=\(trigger) state=\(state) placement=\(placement)")
+
     withAnimation(.easeInOut(duration: Self.animationDuration), completionCriteria: .removed) {
       if let window = nswindow {
         togglePreviewStateWithAnimation(windowFrame: window.frame)
@@ -187,7 +193,9 @@ class SlideoutController {
           context.completionHandler = {
             if self.state == expectedAnimationState {
               self.state = expectedAnimationState.animationDone()
+              Perf.event("preview.toggle.end", zone: .preview, "state=\(self.state) placement=\(self.placement)")
             }
+            interval?.end("trigger=\(trigger) placement=\(self.placement)")
           }
           context.duration = Self.animationDuration
           window.animator().setFrame(
@@ -197,6 +205,9 @@ class SlideoutController {
         }
       }
     } completion: {
+      // The window animation and the SwiftUI animation run in parallel; record the
+      // SwiftUI side separately to spot a desync between them.
+      Perf.record("preview.swiftuiAnimation.ms", milliseconds: (Perf.now() - startedAt) * 1000)
     }
   }
 
@@ -228,18 +239,23 @@ class SlideoutController {
     guard !autoOpenSuppressed else { return }
     guard !state.isOpen else { return }
 
+    Perf.count("preview.autoOpen.scheduled")
     autoOpenTask = Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(Defaults[.previewDelay]))
       guard !Task.isCancelled else { return }
       guard Defaults[.openPreviewAutomatically] else { return }
 
       if !state.isOpen {
+        Perf.count("preview.autoOpen.fired")
         togglePreview(trigger: .autoOpen)
       }
     }
   }
 
   func cancelAutoOpen() {
+    if autoOpenTask != nil {
+      Perf.count("preview.autoOpen.cancelled")
+    }
     autoOpenTask?.cancel()
     autoOpenTask = nil
   }

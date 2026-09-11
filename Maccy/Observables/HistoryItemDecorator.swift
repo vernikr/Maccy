@@ -30,22 +30,31 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
       return "iCloud"
     }
 
-    guard let bundle = item.application,
-      let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
-    else {
+    guard let bundle = item.application else {
+      return nil
+    }
+
+    // Resolved on every access, so it is worth knowing how often this lookup happens.
+    let url = Perf.counted("decorator.application.lookup") {
+      NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
+    }
+
+    guard let url else {
       return nil
     }
 
     return url.deletingPathExtension().lastPathComponent
   }
 
-  var hasImage: Bool { item.image != nil }
+  var hasImage: Bool {
+    Perf.counted("decorator.hasImage") { item.image != nil }
+  }
 
   var previewImageGenerationTask: Task<(), Error>?
   var thumbnailImageGenerationTask: Task<(), Error>?
   var previewImage: NSImage?
   var previewText: String {
-    item.previewableText
+    Perf.counted("decorator.previewText") { item.previewableText }
   }
   var thumbnailImage: NSImage?
   var applicationImage: ApplicationImage
@@ -74,6 +83,10 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
   
   // Describe the complete item independently of its potentially truncated visual content.
   var accessibilityLabel: String {
+    Perf.counted("decorator.accessibilityLabel") { buildAccessibilityLabel() }
+  }
+
+  private func buildAccessibilityLabel() -> String {
     var parts: [String] = []
     if hasImage, let image = item.image {
       let size = image.pixelSize
@@ -114,6 +127,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     guard thumbnailImageGenerationTask == nil else {
       return
     }
+    Perf.count("decorator.ensureThumbnailImage")
     thumbnailImageGenerationTask = Task { [weak self] in
       self?.generateThumbnailImage()
     }
@@ -130,6 +144,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     guard previewImageGenerationTask == nil else {
       return
     }
+    Perf.count("decorator.ensurePreviewImage")
     previewImageGenerationTask = Task { [weak self] in
       self?.generatePreviewImage()
     }
@@ -140,8 +155,11 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     if let image = previewImage {
       return image
     }
+
+    let interval = Perf.begin("decorator.asyncGetPreviewImage", zone: .preview)
     ensurePreviewImage()
     _ = await previewImageGenerationTask?.result
+    interval?.end("cached=false")
     return previewImage
   }
 
@@ -161,7 +179,11 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     guard let image = item.image else {
       return
     }
-    thumbnailImage = image.resized(to: HistoryItemDecorator.thumbnailImageSize)
+    // `NSImage.resized` returns a lazily drawn image: the actual rasterization happens
+    // on the first draw, which is why `frame.stats` hitches matter here.
+    thumbnailImage = Perf.measure("decorator.thumbnailImage", zone: .popup) {
+      image.resized(to: HistoryItemDecorator.thumbnailImageSize)
+    }
   }
 
   @MainActor
@@ -169,7 +191,9 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     guard let image = item.image else {
       return
     }
-    previewImage = image.resized(to: HistoryItemDecorator.previewImageSize)
+    previewImage = Perf.measure("decorator.previewImage", zone: .preview) {
+      image.resized(to: HistoryItemDecorator.previewImageSize)
+    }
   }
 
   @MainActor

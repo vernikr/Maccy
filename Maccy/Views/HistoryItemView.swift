@@ -42,6 +42,8 @@ struct HistoryItemView: View {
   }
 
   var body: some View {
+    let _ = Perf.count("list.row.body")
+
     ListItemView(
       id: item.id,
       selectionId: item.id,
@@ -60,6 +62,7 @@ struct HistoryItemView: View {
     .accessibilityIdentifier("copy-history-item")
     .buttonAction(performSelect)
     .onAppear {
+      Perf.count("list.row.appear")
       item.ensureThumbnailImage()
     }
     .accessibilityAction(named: Text(item.isPinned ? "history_item_unpin_action" : "history_item_pin_action")) {

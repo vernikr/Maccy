@@ -121,6 +121,7 @@ class Popup {
 
   private func handleFirstKeyDown() {
     if isClosed() {
+      PopupOpenProbe.shared.begin(source: "shortcut")
       open(height: height)
       state = .opening
       KeyboardShortcuts.disable(.popup)  // Handle events via eventsMonitor. Re-enable on popup close

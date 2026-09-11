@@ -3,3 +3,6 @@ Maccy.xcodeproj/project.xcworkspace/xcshareddata
 .idea
 .DS_Store
 Maccy/.DS_Store
+
+# Perf instrumentation build output
+.build/

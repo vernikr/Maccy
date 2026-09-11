@@ -74,15 +74,45 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
   }
 
   func open(height: CGFloat, at popupPosition: PopupPosition = Defaults[.popupPosition]) {
+    let probe = PopupOpenProbe.shared
+    let wasVisible = isVisible
+    probe.begin(source: "panel.open")
+    Perf.count("popup.open")
+
     let size = Defaults[.windowSize]
     let miniumHeight: CGFloat = AppState.shared.popup.minimumHeight
     let finalWidth = min(frame.width, size.width)
     let finalHeight = max(min(height, size.height), miniumHeight)
+
+    var stepStartedAt = Perf.now()
     setContentSize(NSSize(width: finalWidth, height: finalHeight))
+    probe.step("popup.open.setContentSize", since: stepStartedAt)
+
+    stepStartedAt = Perf.now()
     setFrameOrigin(popupPosition.origin(size: frame.size, statusBarButton: statusBarButton))
+    probe.step("popup.open.setFrameOrigin", since: stepStartedAt)
+
+    stepStartedAt = Perf.now()
     orderFrontRegardless()
+    probe.step("popup.open.orderFrontRegardless", since: stepStartedAt)
+
+    stepStartedAt = Perf.now()
     makeKey()
+    probe.step("popup.open.makeKey", since: stepStartedAt)
+
     isPresented = true
+
+    probe.note("size=\(String(format: "%.0fx%.0f", finalWidth, finalHeight))")
+    probe.note("items=\(AppState.shared.history.items.count)")
+    probe.note("position=\(popupPosition)")
+    probe.note("wasVisible=\(wasVisible)")
+
+    // The display link ticks on the first presented frame, which is the closest signal
+    // to "the user can see the popup" that AppKit offers.
+    PerfFrameMonitor.shared.onFirstFrame = { PopupOpenProbe.shared.framePresented() }
+    if let contentView {
+      PerfFrameMonitor.shared.start(on: contentView)
+    }
 
     if popupPosition == .statusItem {
       DispatchQueue.main.async {
@@ -92,6 +122,9 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
   }
 
   func verticallyResize(to newHeight: CGFloat) {
+    let startedAt = Perf.now()
+    let beforeFirstFrame = PopupOpenProbe.shared.isActive
+
     var newSize = frame.size
     newSize.height = newHeight
     var newOrigin = frame.origin
@@ -99,7 +132,17 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
 
     NSAnimationContext.runAnimationGroup { (context) in
       context.duration = 0.2
+      context.completionHandler = {
+        Perf.record("popup.verticalResize.ms", milliseconds: (Perf.now() - startedAt) * 1000)
+      }
       animator().setFrame(NSRect(origin: newOrigin, size: newSize), display: true)
+    }
+
+    Perf.count("popup.verticalResize")
+    if beforeFirstFrame {
+      // Any resize queued before the popup was even presented adds a second layout pass
+      // to the first frame the user sees.
+      Perf.count("popup.verticalResize.beforeFirstFrame")
     }
   }
 
@@ -186,6 +229,8 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
   }
 
   func windowDidBecomeKey(_ notification: Notification) {
+    PopupOpenProbe.shared.stepSinceStart("popup.open.becameKey")
+
     AppState.shared.preview.enableAutoOpen()
 
     if AppState.shared.navigator.leadHistoryItem != nil {
@@ -208,6 +253,9 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
 
   override func close() {
     super.close()
+    PerfFrameMonitor.shared.stop()
+    PopupOpenProbe.shared.cancel(reason: "closed")
+    Perf.count("popup.close")
     AppState.shared.preview.state = .closed
     isPresented = false
     statusBarButton?.isHighlighted = false

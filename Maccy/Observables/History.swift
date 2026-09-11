@@ -16,21 +16,28 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
   var items: [HistoryItemDecorator] = []
   var pasteStack: PasteStack?
 
-  var pinnedItems: [HistoryItemDecorator] { items.filter(\.isPinned) }
-  var unpinnedItems: [HistoryItemDecorator] { items.filter(\.isUnpinned) }
+  var pinnedItems: [HistoryItemDecorator] {
+    Perf.counted("history.pinnedItems") { items.filter(\.isPinned) }
+  }
+  var unpinnedItems: [HistoryItemDecorator] {
+    Perf.counted("history.unpinnedItems") { items.filter(\.isUnpinned) }
+  }
 
   var searchQuery: String = "" {
     didSet {
+      Perf.count("history.searchQuery.changed")
       throttler.throttle { [self] in
-        updateItems(search.search(string: searchQuery, within: all))
+        Perf.measure("history.search", zone: .popup) {
+          updateItems(search.search(string: searchQuery, within: all))
 
-        if searchQuery.isEmpty {
-          AppState.shared.navigator.select(item: unpinnedItems.first)
-        } else {
-          AppState.shared.navigator.highlightFirst()
+          if searchQuery.isEmpty {
+            AppState.shared.navigator.select(item: unpinnedItems.first)
+          } else {
+            AppState.shared.navigator.highlightFirst()
+          }
+
+          AppState.shared.popup.needsResize = true
         }
-
-        AppState.shared.popup.needsResize = true
       }
     }
   }
@@ -103,14 +110,23 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
 
   @MainActor
   func load() async throws {
+    let startedAt = Perf.now()
     let descriptor = FetchDescriptor<HistoryItem>()
     let results = try Storage.shared.context.fetch(descriptor)
+    let fetchedAt = Perf.now()
     all = sorter.sort(results).map { HistoryItemDecorator($0) }
     items = all
 
     limitHistorySize(to: Defaults[.size])
 
     updateShortcuts()
+    Perf.record("history.load.fetch.ms", milliseconds: (fetchedAt - startedAt) * 1000)
+    Perf.record("history.load.decorate.ms", milliseconds: (Perf.now() - fetchedAt) * 1000)
+    Perf.event(
+      "history.load",
+      zone: .popup,
+      "items=\(all.count) popupOpen=\(PopupOpenProbe.shared.isActive)"
+    )
     // Ensure that panel size is proper *after* loading all items.
     Task {
       AppState.shared.popup.needsResize = true

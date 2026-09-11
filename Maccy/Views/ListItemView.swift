@@ -54,6 +54,8 @@ struct ListItemView<Title: View, ID: Hashable>: View {
   }
 
   var body: some View {
+    let _ = Perf.count("list.row.listItem.body")
+
     HStack(spacing: 0) {
       if showIcons, let appIcon {
         VStack {

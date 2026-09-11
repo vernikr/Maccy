@@ -66,6 +66,7 @@ struct HistoryListView: View {
   }
 
   var body: some View {
+    let _ = Perf.count("list.body")
     let topPinsVisible = pinTo == .top && pinsVisible
     let bottomPinsVisible = pinTo == .bottom && pinsVisible
     let historyEmpty = unpinnedItems.isEmpty

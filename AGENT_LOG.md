@@ -71,3 +71,55 @@
      ключевые метрики — время до первого кадра, длительность `History.load`, число layout-проходов/переоценок
      body за кадр, счётчики дорогих вызовов (`NSWorkspace.urlForApplication`, `ColorImage.from`, `previewableText`).
 7.5. Решение о переносе отчёта в `docs/` и о реализации метрик/оптимизаций оставлено за пользователем.
+
+---
+
+## 8. Что было запрошено
+
+8.1. `Запрос`: добавить os_signpost-инструментацию по трём зонам (открытие меню, hover,
+     анимация превью) с включением по флагу, а также все необходимые инструменты и обвязки,
+     чтобы получить замеры до оптимизаций.
+
+## 9. Что сделано
+
+9.1. Ядро `Maccy/Performance/Perf.swift`: флаг (`MACCY_PERF` или preference `perfSignposts`,
+     + `Perf.setEnabled(_:)` для тестов/отладчика), зоны `popup|hover|preview|frames`,
+     API `begin/end/measure/event/count/record/counted`, часы hover-латентности (`NSEvent.timestamp`).
+     Signposts идут в категорию `PointsOfInterest` (видны в Instruments), текстовые строки — в
+     `Logger` по зонам.
+9.2. `PerfCounters.swift`: потокобезопасная агрегация счётчиков/сумм/длительностей и `describe`.
+9.3. `PerfFrameMonitor.swift`: CADisplayLink на контент-вью панели, раз в секунду —
+     `fps/hitches/dropped/worst` + сброс счётчиков одним событием `frame.stats`; первый тик = маркер
+     первого кадра для пробы.
+9.4. `PopupOpenProbe.swift`: сессия открытия (источник, подшаги `setContentSize`/`setFrameOrigin`/
+     `orderFrontRegardless`/`makeKey`/`becameKey`, заметки `size/items/wasVisible`) и итог
+     `popup.open.firstFrame`; `cancel` при закрытии.
+9.5. Хуки в коде: `AppDelegate` (клик/ready), `Popup` (шорткат), `FloatingPanel` (шаги, монитор кадров,
+     ресайзы, close), `History` (load/search/pinned/unpinned), `HistoryItemDecorator` и `HistoryItem`
+     (application, accessibilityLabel, previewText, hasImage, image/rtf/html, thumbnail/preview),
+     `ApplicationImage`, `ColorImage`, `NavigationManager` (lead/didSet, `isKeyboardNavigating` write/no-op),
+     `HoverSelectionModifier`, `MouseMovedViewModifier`, `SlideoutController` (toggle/autoOpen),
+     `ContentView`/`HistoryListView`/`HistoryItemView`/`ListItemView`/`SlideoutView`/`PreviewItemView`
+     (счётчики переоценок body), счётчики строк/иконок.
+9.6. Обвязка: `docs/performance-profiling.md` (включение, таблицы метрик по зонам, команды log/xctrace,
+     процедура сравнения до/после, оговорки), `scripts/perf.sh` (`on/off/status/stream/build/record`),
+     `.gitignore` (+`.build/`), тесты `MaccyTests/PerfInstrumentationTests.swift` (8 тестов на флаг,
+     счётчики, интервалы, hover-латентность, жизненный цикл пробы), регистрация файлов в `project.pbxproj`.
+
+## 10. Проверки
+
+10.1. `scripts/perf.sh build`: BUILD SUCCEEDED, новых предупреждений от файлов инструментации нет.
+10.2. `xcodebuild test -only-testing:MaccyTests/PerfInstrumentationTests`: 8/8 passed.
+10.3. Полная сюита `MaccyTests`: 63 теста, 0 падений среди запущенных; два сбоя в существующих
+      тестах признаны средовыми и не связанными с изменениями: `HistoryItemDecoratorTests` падает на
+      IUO `firstCopiedAt` из-за locale (`DateFormatter.date(from:)` возвращает nil, воспроизведено вне Maccy),
+      `ClipboardTests.testIgnoreAllApplicationsExcept` требует Xcode в foreground.
+10.4. Рантайм-проверка (лог тестового хоста): события доходят до лога, например
+      `popup.open.firstFrame zone=popup source=unit-test ms=0.19 steps=[…] notes=[items=3]`.
+
+## 11. Что предложено
+
+11.1. Снять замеры по сценарию из `docs/performance-profiling.md` и только потом браться за
+      оптимизации (пункты 7.1–7.3).
+11.2. По желанию: добавить UI-триггер для флага (сейчас только env/`defaults`), автоматический
+      сбор отчёта (`xcrun xctrace export`) и регрессионный прогон по метрикам в CI.

@@ -35,10 +35,14 @@ class ApplicationImage {
     }
     lastChecked = .now
 
-    if let appURL = NSWorkspace.shared.urlForApplication(
-      withBundleIdentifier: bundleIdentifier
-    ) {
-      let img = NSWorkspace.shared.icon(forFile: appURL.path)
+    let appURL = Perf.counted("applicationImage.lookup") {
+      NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+    }
+
+    if let appURL {
+      let img = Perf.measure("applicationImage.icon", zone: .popup) {
+        NSWorkspace.shared.icon(forFile: appURL.path)
+      }
       image = img
 
       let descriptor = open(appURL.path, O_EVTONLY)

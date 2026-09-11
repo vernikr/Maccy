@@ -9,6 +9,8 @@ struct ContentView: View {
   @FocusState private var searchFocused: Bool
 
   var body: some View {
+    let _ = Perf.count("contentView.body")
+
     ZStack {
       if #available(macOS 26.0, *) {
         GlassEffectView()

@@ -28,6 +28,9 @@ struct MouseMovedViewModifier: ViewModifier {
     var mouseMoved: (() -> Void)?
 
     override func mouseMoved(with event: NSEvent) {
+      // Hover lag is measured from here: the event timestamp is the moment the cursor
+      // actually moved, so it also covers the delivery delay inside AppKit/SwiftUI.
+      Perf.noteMouseMoved(timestamp: event.timestamp)
       mouseMoved?()
     }
   }

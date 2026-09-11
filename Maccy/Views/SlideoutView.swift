@@ -94,6 +94,8 @@ where Content: View, Slideout: View {
   }
 
   var body: some View {
+    let _ = Perf.count(controller.state.isAnimating ? "preview.layout.animating" : "preview.layout")
+
     HStack(spacing: 0) {
       VStack(spacing: 0) {
         content()

@@ -30,7 +30,11 @@ class NavigationManager { // swiftlint:disable:this type_body_length
   }
   private(set) var leadHistoryItem: HistoryItemDecorator? {
     didSet {
-      guard oldValue?.id != leadHistoryItem?.id else { return }
+      guard oldValue?.id != leadHistoryItem?.id else {
+        Perf.count("nav.leadHistoryItem.unchanged")
+        return
+      }
+      Perf.count("nav.leadHistoryItem.changed")
 
       // Announce the visual selection change, keeping repeated navigation updates concise.
       if let item = leadHistoryItem {
@@ -47,11 +51,13 @@ class NavigationManager { // swiftlint:disable:this type_body_length
       }
 
       let preview = AppState.shared.preview
-      if leadHistoryItem != nil {
-        preview.resetAutoOpenSuppression()
-        preview.startAutoOpen()
-      } else {
-        preview.cancelAutoOpen()
+      Perf.measure("nav.leadHistoryItem.preview", zone: .preview) {
+        if leadHistoryItem != nil {
+          preview.resetAutoOpenSuppression()
+          preview.startAutoOpen()
+        } else {
+          preview.cancelAutoOpen()
+        }
       }
     }
   }
@@ -68,6 +74,11 @@ class NavigationManager { // swiftlint:disable:this type_body_length
   var hoverSelectionWhileKeyboardNavigating: UUID?
   var isKeyboardNavigating: Bool = true {
     didSet {
+      Perf.count("nav.isKeyboardNavigating.writes")
+      if oldValue == isKeyboardNavigating {
+        Perf.count("nav.isKeyboardNavigating.noopWrites")
+      }
+
       if !isKeyboardNavigating && !isMultiSelectInProgress,
          let hoverSelection = hoverSelectionWhileKeyboardNavigating {
         hoverSelectionWhileKeyboardNavigating = nil
@@ -83,6 +94,7 @@ class NavigationManager { // swiftlint:disable:this type_body_length
   }
 
   func select(id: UUID) {
+    Perf.count("nav.select.scannedItems", history.items.count)
     if let item = history.items.first(where: { $0.id == id }) {
       select(item: item, footerItem: nil)
     } else if let item = footer.items.first(where: { $0.id == id }) {
@@ -150,6 +162,12 @@ class NavigationManager { // swiftlint:disable:this type_body_length
   }
 
   func selectWithoutScrolling(id: UUID) {
+    let interval = Perf.begin("hover.select", zone: .hover)
+    defer { interval?.end() }
+
+    // Both lookups below are linear scans over the whole history.
+    Perf.count("hover.select.scannedItems", history.items.count)
+
     if let stack = history.pasteStack,
        stack.id == id {
       selectWithoutScrolling(item: nil, footerItem: nil)

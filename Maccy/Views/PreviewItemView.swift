@@ -15,6 +15,8 @@ struct PreviewItemView: View {
   }
 
   var body: some View {
+    let _ = Perf.count("preview.itemView.body")
+
     VStack(alignment: .leading, spacing: 0) {
       if item.hasImage {
         AsyncView<NSImage?, _, _>(id: item.id) {
@@ -115,7 +117,11 @@ struct LargeTextPreviewView: NSViewRepresentable {
   let text: String
 
   func makeNSView(context: Context) -> NSScrollView {
-    return Self.makeScrollView(text: text)
+    // Building the text view is synchronous on the main thread, in the middle of the
+    // preview animation.
+    return Perf.measure("preview.largeText.make", zone: .preview) {
+      Self.makeScrollView(text: text)
+    }
   }
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {

@@ -53,6 +53,9 @@ extension Defaults.Keys {
   static let migrations = Key<[String: Bool]>("migrations", default: [:], suite: preferencesSuite)
   static let numberOfUsages = Key<Int>("numberOfUsages", default: 0, suite: preferencesSuite)
   static let pasteByDefault = Key<Bool>("pasteByDefault", default: false, suite: preferencesSuite)
+  // Enables the `os_signpost` instrumentation described in docs/performance-profiling.md.
+  // Not exposed in the settings UI; toggle with `defaults write org.p0deje.Maccy perfSignposts -bool YES`.
+  static let perfSignposts = Key<Bool>("perfSignposts", default: false, suite: preferencesSuite)
   static let pinTo = Key<PinsPosition>("pinTo", default: .top, suite: preferencesSuite)
   static let popupPosition = Key<PopupPosition>("popupPosition", default: .cursor, suite: preferencesSuite)
   static let popupScreen = Key<Int>("popupScreen", default: 0, suite: preferencesSuite)

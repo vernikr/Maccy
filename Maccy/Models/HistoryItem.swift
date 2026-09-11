@@ -153,10 +153,14 @@ class HistoryItem {
       return nil
     }
 
-    return NSAttributedString(html: data, documentAttributes: nil)
+    return Perf.measure("historyItem.htmlParse", zone: .preview) {
+      NSAttributedString(html: data, documentAttributes: nil)
+    }
   }
 
   var imageData: Data? {
+    Perf.count("historyItem.imageData")
+
     var data: Data?
     data = contentData(Self.imageTypes)
     if data == nil, universalClipboardImage, let url = fileURLs.first {
@@ -168,13 +172,18 @@ class HistoryItem {
 
   var image: NSImage? {
     if let img = cachedDecodedImage {
+      Perf.count("historyItem.image.cached")
       return img
     }
     guard let data = imageData else {
       return nil
     }
 
-    cachedDecodedImage = NSImage(data: data)
+    // Note: `NSImage(data:)` decodes lazily, so this measures construction only; the
+    // real decode cost shows up in the `frame.stats` hitches of the first draw.
+    cachedDecodedImage = Perf.measure("historyItem.image.decode", zone: .popup) {
+      NSImage(data: data)
+    }
     return cachedDecodedImage
   }
 
@@ -184,7 +193,9 @@ class HistoryItem {
       return nil
     }
 
-    return NSAttributedString(rtf: data, documentAttributes: nil)
+    return Perf.measure("historyItem.rtfParse", zone: .preview) {
+      NSAttributedString(rtf: data, documentAttributes: nil)
+    }
   }
 
   func clearDecodedImageCache() {
