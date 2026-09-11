@@ -5,19 +5,22 @@
 #   scripts/perf.sh off           disable them
 #   scripts/perf.sh status        show whether they are currently enabled
 #   scripts/perf.sh stream        tail signpost/zone summaries with `log stream`
-#   scripts/perf.sh build         build a Debug app into .build (no signing)
+#   scripts/perf.sh validate      check project references with scripts/validate-pbxproj.py
+#   scripts/perf.sh preflight     validate + placeholder check (build runs this automatically)
+#   scripts/perf.sh build         run preflight, then build a Debug app into .build (no signing)
 #   scripts/perf.sh record [trace] [seconds]
 #                                 record a trace with the Instruments "Points of Interest"
 #                                 template and launch the app
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VALIDATOR="$ROOT_DIR/scripts/validate-pbxproj.py"
 BUNDLE_ID="org.p0deje.Maccy"
 DEFAULT_APP="$ROOT_DIR/.build/Build/Products/Debug/Maccy.app"
 APP="${MACCY_APP:-$DEFAULT_APP}"
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
 }
 
 require_app() {
@@ -28,7 +31,38 @@ require_app() {
   fi
 }
 
+cmd_validate() {
+  python3 "$VALIDATOR" "$ROOT_DIR/Maccy.xcodeproj" "$@"
+}
+
+# Runs before every build: catches project mistakes that Xcode reports silently
+# (an ignored build-phase entry shows up much later as "Executed 0 tests").
+cmd_preflight() {
+  local status=0 hits
+
+  echo "== project references =="
+  cmd_validate || status=1
+
+  echo "== placeholder tokens in Swift sources =="
+  hits="$(grep -rIn --include='*.swift' -E '([[:alnum:]]-placeholder|TODO: remove)' \
+    "$ROOT_DIR/Maccy" "$ROOT_DIR/MaccyTests" "$ROOT_DIR/MaccyUITests" 2>/dev/null || true)"
+  if [[ -n "$hits" ]]; then
+    printf '%s\n' "$hits" >&2
+    echo "error: placeholder token left in the source" >&2
+    status=1
+  else
+    echo "ok: no placeholder tokens"
+  fi
+
+  return "$status"
+}
+
 cmd_build() {
+  if ! cmd_preflight; then
+    echo "error: preflight failed, not building" >&2
+    exit 1
+  fi
+
   echo "Building Debug into $ROOT_DIR/.build …"
   xcodebuild \
     -project "$ROOT_DIR/Maccy.xcodeproj" \
@@ -84,6 +118,8 @@ case "${1:-}" in
   off) cmd_off ;;
   status) cmd_status ;;
   stream) cmd_stream ;;
+  validate) shift; cmd_validate "$@" ;;
+  preflight) cmd_preflight ;;
   build) cmd_build ;;
   record) shift; cmd_record "${1:-/tmp/maccy-perf.trace}" "${2:-30}" ;;
   *) usage ;;

@@ -53,7 +53,10 @@ Useful Instruments tracks alongside Points of Interest: **Time Profiler** (where
 time goes), **SwiftUI** (view body evaluations, which correlates with the `*.body` counters),
 **Animation Hitches** and **Hangs** (macOS 14+).
 
-`scripts/perf.sh` wraps the common cases: `on`, `off`, `status`, `stream`, `record`, `build`.
+`scripts/perf.sh` wraps the common cases: `on`, `off`, `status`, `stream`, `validate`, `preflight`,
+`record`, `build`. `validate` runs `scripts/validate-pbxproj.py`, and `build` runs `preflight`
+(the validator plus a placeholder-token check) before calling `xcodebuild`, so project-reference
+mistakes fail loudly instead of turning into a build that appears to succeed silently.
 
 ## Zone 1 — opening the popup
 

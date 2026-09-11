@@ -7,16 +7,18 @@
 
 - Xcode 26.2, `MACOSX_DEPLOYMENT_TARGET = 14.0`, Swift 5 mode, тесты — XCTest.
 - Синхронизируемых групп в `project.pbxproj` нет → каждый новый файл регистрируется вручную.
-- Сборка: `bash scripts/perf.sh build` (Debug в `.build/`, без подписи). Перф-инструментация:
-  `docs/performance-profiling.md`.
+- Сборка: `bash scripts/perf.sh build` — Debug в `.build/`, без подписи; перед сборкой сам запускает
+  preflight (валидатор проекта + проверка заглушек). Перф-инструментация: `docs/performance-profiling.md`.
+- Проверка ссылок в проекте: `python3 scripts/validate-pbxproj.py` (или `bash scripts/perf.sh validate`).
 
 ## Грабли → правило
 
 1. **Висячая ссылка в `project.pbxproj`** игнорируется молча. Симптом: тестовый класс не компилируется,
    `Executed 0 tests`, файла нет в сгенерированном `*.SwiftFileList`. Правило: ID в build phase обязан
-   совпадать с ID в секции `PBXBuildFile`; после правки — `grep -n "<ID>" Maccy.xcodeproj/project.pbxproj`
-   (ровно два попадания: phase + секция, плюс FileReference/группа на своих ID). Новый файл = четыре
-   записи: `PBXFileReference`, `PBXBuildFile`, группа, Sources phase.
+   совпадать с ID в секции `PBXBuildFile`. Новый файл = четыре записи: `PBXFileReference`,
+   `PBXBuildFile`, группа, Sources phase. Проверка — `bash scripts/perf.sh validate`; она находит
+   висячие ID (с именем фазы и цели), дубли в фазе, мёртвые записи, ссылки на отсутствующие файлы
+   и незакомпилированные `.swift`. `perf.sh build` вызывает её сам и не собирает при ошибке.
 2. **`tail` по логу сборки теряет причины ошибок.** Правило: всегда
    `xcodebuild … > /tmp/build.log 2>&1`, диагноз — `grep -n "error:" /tmp/build.log`; `tail` только для статуса.
 3. **Фоновые процессы в окружении не работают** (`&` внутри синхронного вызова убивается таймаутом,
@@ -45,5 +47,5 @@
 2. Baseline: `xcodebuild test -project Maccy.xcodeproj -scheme Maccy -derivedDataPath .build \
    -destination 'platform=macOS' -only-testing:MaccyTests` — зафиксировать исходные падения.
 3. Правки кода, затем правки `project.pbxproj`.
-4. Проверка ссылок в pbxproj (`grep` по каждому новому ID) → только потом сборка.
+4. Проверка: `bash scripts/perf.sh validate` (0 error) → только потом сборка (`bash scripts/perf.sh build`).
 5. Сборка с логом в файл → `grep error:` → тесты (сначала целевой класс, затем вся `MaccyTests`).
