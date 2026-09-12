@@ -81,6 +81,11 @@ extension NSImage {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     context.imageInterpolation = .high
+    // The context draws in the rep's pixels, not in the rep's points: without this the picture
+    // lands in one `scale`-sized corner of the bitmap while the image still reports the full point
+    // size, so a row shows a half-size thumbnail in a full-size box (pinned by
+    // `ThumbnailRasterizationTests.testRasterizedImageCoversTheWholeBitmap`).
+    context.cgContext.scaleBy(x: scale, y: scale)
     draw(in: NSRect(origin: .zero, size: pointSize), from: .zero, operation: .copy, fraction: 1)
     context.flushGraphics()
     NSGraphicsContext.restoreGraphicsState()

@@ -267,6 +267,15 @@ Covered by `MaccyTests/ThumbnailRasterizationTests`: the rasterization runs off 
 row receives an image backed by an `NSBitmapImageRep`, the aspect ratio and the requested scale
 survive, `resized(to:)` stays lazy, and an item without an image never rasterizes.
 
+One thing the first version of this got wrong, noticed by a user looking at the list: the bitmap
+contained the picture in one quarter of itself. `NSGraphicsContext(bitmapImageRep:)` draws in the
+rep's **pixels**, while the code drew into a rect of the image's **points** — at a backing scale of 2
+the picture filled 39 of 78 columns, and because the `NSImage` still reported the full point size,
+the row kept its height and showed a half-size thumbnail. Every existing test passed, because they
+asserted *sizes* (`size`, `pixelsWide`) rather than content; the regression test now walks the bitmap
+and requires the painted pixels to reach its far edge. It fails on the old code with "it filled 39 of
+78 columns".
+
 Caveat on comparing numbers across sessions: the same code measured 238.6 – 334.0 ms cold in one
 session and 63.4 – 77.3 ms in another, with the trigger, the store, the item count and the popup
 position all held constant. Machine state (other apps, thermal, the user's own Maccy instance being

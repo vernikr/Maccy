@@ -46,6 +46,63 @@ final class ThumbnailRasterizationTests: XCTestCase {
     XCTAssertEqual(bitmap?.pixelsHigh, 40)
   }
 
+  /// The rasterized bitmap must contain the whole picture, not a corner of it.
+  ///
+  /// A rep created at `scale` times the point size is drawn into through a graphics context whose
+  /// units are its *pixels*: asking for a point-sized rect painted only the bottom-left quarter of
+  /// the bitmap on a Retina screen, and since the image still reported the full point size, a row
+  /// showed a half-size thumbnail inside a full-size box. What the tests above missed is that they
+  /// only looked at sizes.
+  func testRasterizedImageCoversTheWholeBitmap() {
+    let source = makeImage(size: NSSize(width: 1600, height: 900))
+    let rasterized = source.rasterized(to: NSSize(width: 40, height: 22), scale: 2)
+
+    guard let bitmap = rasterized.representations.compactMap({ $0 as? NSBitmapImageRep }).first else {
+      XCTFail("the rasterized image must be backed by a bitmap")
+      return
+    }
+
+    // The box is an upper bound: the aspect ratio decides the actual size.
+    XCTAssertEqual(bitmap.pixelsWide, Int((rasterized.size.width * 2).rounded()))
+    XCTAssertEqual(bitmap.pixelsHigh, Int((rasterized.size.height * 2).rounded()))
+
+    let painted = paintedBounds(of: bitmap)
+    XCTAssertEqual(painted.minX, 0, "the picture must start at the bitmap's edge")
+    XCTAssertEqual(painted.minY, 0)
+    XCTAssertGreaterThanOrEqual(
+      painted.maxX, bitmap.pixelsWide - 1,
+      "the picture must reach the far edge; stopping short means it was drawn into a fraction of "
+        + "the bitmap (it filled \(painted.maxX + 1) of \(bitmap.pixelsWide) columns)"
+    )
+    XCTAssertGreaterThanOrEqual(
+      painted.maxY, bitmap.pixelsHigh - 1,
+      "it filled \(painted.maxY + 1) of \(bitmap.pixelsHigh) rows"
+    )
+  }
+
+  /// The bounding box of the pixels that are not fully transparent.
+  ///
+  /// Edges are read against "painted at all" rather than "fully opaque": resampling a 1600 px source
+  /// down to 40 leaves the outermost column partly transparent, which says nothing about geometry.
+  private func paintedBounds(of bitmap: NSBitmapImageRep) -> (minX: Int, minY: Int, maxX: Int, maxY: Int) {
+    var minX = bitmap.pixelsWide
+    var minY = bitmap.pixelsHigh
+    var maxX = -1
+    var maxY = -1
+
+    for y in 0..<bitmap.pixelsHigh {
+      for x in 0..<bitmap.pixelsWide {
+        guard (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05 else { continue }
+        minX = min(minX, x)
+        minY = min(minY, y)
+        maxX = max(maxX, x)
+        maxY = max(maxY, y)
+      }
+    }
+
+    return (minX, minY, maxX, maxY)
+  }
+
   func testRasterizingDoesNotSizeUp() {
     var draws = 0
     let source = NSImage(size: NSSize(width: 200, height: 100), flipped: false) { _ in
