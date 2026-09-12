@@ -270,6 +270,84 @@ now shows, one VoiceOver check and one already-open check on the auto-open timer
 list is work that can be dropped without changing what the popup does — the next thing to look at
 is the SwiftUI layout/commit of those two rows, which needs Instruments rather than counters.
 
+## SwiftUI trace (Instruments): what the remaining worst frames are made of
+
+Method: same Debug build and the same 200-item copy, recorded with
+`xctrace record --template 'Time Profiler' --instrument 'View Body (Legacy)' --instrument 'os_signpost'
+--instrument 'Hangs' --attach <pid>`; one real click on the status item and four 2 s cursor sweeps
+(`peekaboo move --at 1150,y --smooth --duration 2000 --steps 60`), recording stopped with `SIGINT`.
+
+The SwiftUI template and the `Hitches` instrument cannot be recorded in this environment, and the
+`Animation Hitches` template writes ~175 MB/s during a sweep (13 GB in 75 s), so the hitch *phase*
+split (commit / render / GPU) is not available — everything below is CPU-time attribution.
+
+Time Profiler samples only threads that are **running**, so consecutive 1 ms main-thread samples are
+one uninterrupted CPU stretch — a “stall”. 42 stalls ≥30 ms were found; they hold **76 %** of the
+main-thread CPU of the whole sweep (3396 of 4463 ms).
+
+| trace: stall | CPU | app `frame.stats` in the same second |
+| --- | --- | --- |
+| 14:34:27.975 — 277 ms | 272 ms | fps 41, hitches 6, dropped 20, worst **110.21 ms** |
+| 14:34:19.033 — 237 ms | 233 ms | fps 41, hitches 6, dropped 18, worst **103.18 ms** |
+| 14:34:08.050 — 183 ms | 179 ms | fps 25, hitches 9, dropped 35, worst **155.85 ms** |
+| 14:34:08.406 — 150 ms | 145 ms | (same second as above) |
+| 14:33:57.917 — 125 ms | 123 ms | fps 27.4, hitches 14, dropped 32, worst **103.03 ms** |
+| 14:33:36.242 — 172 ms | 167 ms | popup open, not hover |
+
+Per-second CPU correlates exactly with the app's own report: idle seconds are 1–21 ms of CPU at
+60 fps, the hover seconds are **67–688 ms** of CPU with fps 25–53 and `worst` 34–156 ms. The worst
+frames are simply the seconds in which the main thread never finished draining the event queue.
+
+The stalls are **event-processing** stalls, not render stalls: 88.7 % of all main-thread CPU sits
+under `nextEventMatchingMask` / event dispatch and only 1.6 % under the display link.
+
+Leaf-side partition (disjoint, shares sum to 100 %) — whole sweep vs the three worst stalls:
+
+| what burned the CPU | sweep | 277 ms | 237 ms | 183 ms |
+| --- | --- | --- | --- | --- |
+| SwiftUI / SwiftUICore internals | 25.7 % | 28.3 % | 29.6 % | 30.2 % |
+| Swift ARC / objc dispatch | 18.6 % | 21.3 % | 18.0 % | 16.2 % |
+| allocation (`malloc`/`free`/`bzero`) | 9.9 % | 10.3 % | 6.4 % | 7.8 % |
+| SwiftUI attribute graph | 7.4 % | 4.4 % | 6.0 % | 7.3 % |
+| text shaping — CoreText/OTL/TRunGlue | 6.9 % | 8.5 % | 3.4 % | **16.2 %** |
+| AppKit / UIFoundation | 5.9 % | 9.6 % | **14.2 %** | 5.6 % |
+| Foundation / CF | 6.5 % | 5.9 % | 7.3 % | 4.5 % |
+| CoreAnimation / CoreGraphics draw | 4.6 % | 3.7 % | 6.0 % | 3.4 % |
+| image decode / resample | 1.9 % | 1.8 % | — | — |
+| **our code (`Maccy.debug.dylib`)** | **1.5 %** | **2.2 %** | **2.1 %** | **1.7 %** |
+
+Hottest *self-time* symbols inside the ≥30 ms stalls: `swift_retain` 142 ms, `objc_msgSend` 111,
+`swift_release` 100, `mach_msg2_trap` 81, `_platform_bzero` 55, `free_tiny` 53,
+`AG::Graph::UpdateStack::update` 53, `AG::Subgraph::update` 51, `AG::Graph::propagate_dirty` 45,
+`tiny_malloc_should_clear` 43, `_platform_memmove` 43, `resample_horizontal_avx2` 35,
+`__kdebug_trace64` 32, `OTL::GPOS::ApplyPairPosAccelerated` 26. There is **no single hotspot** — the
+cost is thousands of small calls spread across SwiftUI's view-graph update, text layout and drawing.
+
+App frames on the stack during the stalls (app entry point excluded): `closure #1 in
+NSImage.resized(to:)` 111 ms, `ListItemView.body.getter` witness 26 ms, `LargeTextPreviewView.updateNSView`
+23 ms / `makeNSView` 22 ms, `HoverSelectionModifier` closure 21 ms, `HistoryItemView.body` 21 ms,
+`HeaderView.body` 21 ms, `Defaults.subscript.getter` 19 ms.
+
+The counters in exactly those seconds name the trigger: `preview.itemView.body` fires **once per
+selection change** (13 / 5 / 1 — the same count as `hover.onHover` and `nav.leadHistoryItem.changed`).
+While the preview is open, every row crossing re-renders the preview content, and the preview's
+`LargeTextPreviewView` (an `NSViewRepresentable` wrapping `NSTextView`) re-lays out its text; that is
+why text shaping reaches 16 % in the worst seconds and `NSImage.resized(to:)` shows up at all.
+
+Ranked, the remaining worst frames are: 1. SwiftUI view-graph + layout re-run for the selection
+change (26–30 %), 2. ARC/objc + allocation (26 % together, amplified by `-Onone`), 3. the preview
+content re-render and its text layout (CoreText up to 16 %, plus UIFoundation and `NSImage.resized`),
+4. CoreText shaping of the row titles, 5. drawing (3–8 %). Our own code is ~2 % of it.
+
+Trace-specific caveats:
+
+* Debug build — the ARC/allocation share would shrink under `-O`, so only the *structure* transfers.
+* SwiftUI's own frames live in the dyld shared cache and come out unsymbolicated (`0x7ff9…`), so the
+  mid-stack path cannot be read; app-level frames and leaf symbols can.
+* `View Body (Legacy)` produced only 57 intervals for a 54 s sweep — too sparse to use here.
+* The instrumentation itself shows up as `__kdebug_trace64` 32 ms in the stalls (~1 %) — real, but
+  two orders of magnitude below the stalls it measures.
+
 ## Caveats
 
 * `frame.stats` prints at most ~700 characters of counters, so in a busy second the keys that sort

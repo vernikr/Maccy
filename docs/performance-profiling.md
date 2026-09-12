@@ -197,6 +197,41 @@ Peekaboo MCP does move the real pointer: `click` with `foreground: true` on the 
 0.00 s and nothing hovers). Its `see` output is also the quickest way to get the row geometry:
 first row at `y=59`, then every `Popup.itemHeight` (22 pt) down.
 
+## Instruments (xctrace)
+
+`xctrace` cannot record the `SwiftUI` template or the `Hitches` instrument in this environment
+(`Failed starting ktrace session`; adding `Hitches` segfaults `xctrace`), and the `Animation Hitches`
+template writes ~175 MB/s during a live sweep (13 GB in 75 s), so it is unusable here. A working,
+cheap recipe — record and drive the sweep from the same shell command, and stop with `SIGINT`
+instead of waiting for the time limit:
+
+```bash
+xcrun xctrace record --template 'Time Profiler' \
+  --instrument 'View Body (Legacy)' --instrument 'os_signpost' --instrument 'Hangs' \
+  --attach "$PID" --time-limit 90s --output /tmp/sweep.trace --no-prompt &
+REC=$!
+# … click the status item, sweep the cursor over the rows …
+kill -INT "$REC"; wait "$REC"
+```
+
+```bash
+xcrun xctrace export --input /tmp/sweep.trace --toc            # which schemas the run has
+xcrun xctrace export --input /tmp/sweep.trace \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > /tmp/tp.xml
+```
+
+Time Profiler samples **only threads that are running**, so consecutive 1 ms samples on the main
+thread are one uninterrupted CPU stretch — the stall itself. Grouping the main thread's samples into
+such bursts hands you the worst frames without guessing from `frame.stats`, and the leaf symbol of
+each sample says what they were made of. Two parsing traps: `time-profile` and
+`swiftui-body-interval` timestamps are nanoseconds from the start of the run, and the export
+deduplicates frames and backtraces through `ref=` attributes that must be resolved — without that
+~31 % of the leaves are lost and the diagnosis shifts to the callers. Frames from the dyld shared
+cache often come out unsymbolicated (`0x7ff9…`).
+
+A worked example, with numbers, is the “SwiftUI trace (Instruments)” section of
+`docs/performance-baseline.md`.
+
 ## Caveats
 
 - `popup.open.firstFrame` is a lower bound: it is the first ticked frame, not the moment the

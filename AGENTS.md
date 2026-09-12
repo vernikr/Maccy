@@ -17,8 +17,12 @@
   --args enable-testing` (env из `xcodebuild` в тест-хост не пробрасывается, а `open --env` — пробрасывает).
   В Release `#if DEBUG` вырезан, поэтому этот способ там не работает. Живой сценарий и медианы —
   `docs/performance-baseline.md`.
-- Свип курсора по строкам попапа: `see` (Peekaboo) даёт геометрию — первая строка `y=59`,
-  шаг `itemHeight` = 22 pt, `x` внутри попапа; в этой сборке это `x≈1150`, `y=100…520`.
+- Свип курсора по строкам попапа: `x` внутри попапа (в этой сборке `x≈1150`), `y` от 100 до 520
+  (первая строка `y=59`, шаг `itemHeight` = 22 pt). Координаты иконки в статус-баре — только из
+  `peekaboo menubar list --json` (правило 16), `see` панель попапа не видит.
+- Instruments: `xctrace record --attach <pid>` работает для Time Profiler, `os_signpost`, `Hangs`,
+  `View Body/Properties (Legacy)` и шаблона `Animation Hitches`; шаблон `SwiftUI` и инструмент
+  `Hitches` — нет (правило 17). Разбор трейса — `docs/performance-baseline.md`.
 
 ## Грабли → правило
 
@@ -71,11 +75,15 @@
     **только при смене значения** (`NavigationManager.isMultiSelectActive`), и кэшировать всё
     производное от элемента (`imageData`, `hasImage`, `accessibilityLabel`, `ColorImage`).
     Замер — счётчик `list.row.body` в `frame.stats`.
-13. **Клики/курсор синтезирует только Peekaboo MCP**, и `move` без `smooth: true` **телепортирует
+13. **Клики/курсор синтезирует только Peekaboo**, и `move` без `smooth: true` **телепортирует
     курсор** (в ответе `in 0.00s`), не порождая `mouseMoved` — hover при этом не сработает.
-    Правило: свип курсора — `move` с `smooth: true` + `duration` + `steps`; клик по иконке — `click`
-    с `foreground: true` (он отвечает `Click did not return a confirmed outcome`, но клик
-    доставляется — проверять по `popup.open.begin` в логе).
+    Правило: свип — `move` с `smooth: true` + `duration` + `steps`; клик по иконке — `click`
+    с `foreground: true` (отвечает `Click did not return a confirmed outcome`, но доставляется —
+    проверять по `popup.open.begin` в логе). Кроме MCP есть CLI `peekaboo` (bin-каталог fnm-шелла:
+    `move --at x,y --smooth --duration 2000 --steps 60 --foreground`, `click --at x,y`, `press cmd+shift+c`,
+    `menubar list --json`) — он нужен там, где сценарий живёт внутри одной синхронной команды
+    (правило 3). Постинг HID-событий из python-Quartz этот шелл TCC блокирует **молча** (курсор не
+    двигается) — не тратить на него время.
 14. **`Perf.measure` на событии ввода дороже самого кода.** Интервал = пара signpost-вызовов +
     форматированная строка metadata, ~50–70 мкс; проверка `NSWorkspace.shared.isVoiceOverEnabled`
     стоит ~20 мкс, весь `announceForAccessibility` ~70 мкс, `startAutoOpen` при открытом превью
@@ -87,6 +95,26 @@
     Правило: не делать вывод «код не вызывался» по одной строке; опираться на отношения, которые
     выживают в каждом окне (`list.row.body / hover.onHover`), и на счётчики, которых не должно быть
     вовсе (`preview.autoOpen.scheduled` при открытом превью во время свипа).
+16. **Позиция иконки в статус-баре меняется между запусками** (в одном прогоне центр `927,12`,
+    в другом `494,12`), при `popupPosition = .statusItem` левый край попапа = `button.minX`.
+    Правило: координаты брать из `peekaboo menubar list --json` (видимый элемент с
+    `org.p0deje.Maccy` и наибольшим `frame[0][0]`), не хардкодить; если попап не открылся,
+    `popup.open.firstFrame` в логе не появится — проверять клик и перекликивать.
+17. **`xctrace` в этом окружении падает на части шаблонов.** `--attach` работает с Time Profiler,
+    `os_signpost`, `Hangs`, `View Body (Legacy)`, `View Properties (Legacy)` и шаблоном
+    `Animation Hitches`; шаблон `SwiftUI` → `Failed starting ktrace session` (deferred-режим),
+    добавление инструмента `Hitches` → segfault xctrace, `Core Animation FPS` → та же ошибка.
+    Плюс: шаблон `Animation Hitches` пишет **~175 МБ/с** на живом свипе (13 ГБ за 75 с, финализация
+    съедает минуты). Правило: лёгкий набор инструментов, а запись останавливать `kill -INT <pid>`
+    сразу после сценария, а не ждать `--time-limit`; при этом `frame.stats` печатается каждый
+    идл-секундой — валить туда 50 с покоя бессмысленно.
+18. **Time Profiler сэмплирует только работающие потоки** (`all-thread-states=NO`), поэтому
+    идущие подряд 1-мс сэмплы главного потока — это один непрерывный CPU-отрезок, т.е. «зависший
+    кадр»; так худшие кадры находятся прямо в трейсе, без догадок по `frame.stats`. Две грабли
+    парсера экспорта: `swiftui-body-interval` пишет время в наносекундах от старта записи, а
+    `ref=` дубликаты кадров и бэктрейсов **обязательны к разрешению** — без этого теряется ~31 %
+    листьев и диагноз уезжает в вызывающую сторону. Фреймы SwiftUI из shared cache
+    не символизуются (`0x7ff9…`) — читать по нашим кадрам и листьям.
 
 ## Порядок работы
 
