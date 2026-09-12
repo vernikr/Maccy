@@ -91,20 +91,29 @@ filter storm and the thumbnail generation.
 
 | Signpost | Meaning |
 | --- | --- |
-| `hover.onHover` | The row received the hover callback. |
 | `hover.applySelection` | Applying the selection (`selectWithoutScrolling`) took this long. |
 | `hover.select` | Same call, measured inside `NavigationManager`. |
-| `hover.cursorToCallback.ms` | Counter: milliseconds between the mouse-moved event timestamp and the hover callback — the part that is pure AppKit/SwiftUI delivery. |
 
-Counters: `hover.mouseMoved` (events per second), `hover.select.scannedItems` (how many items
-the linear id lookup walks), `nav.isKeyboardNavigating.writes` vs `.noopWrites` (writes that did
-not change the value), `nav.isMultiSelectActive.changes` vs `.noopWrites` (the flag every row
-body reads — a `.changes` in a hover window means the rows were invalidated),
+Counters: `hover.onHover` (rows that received the hover callback), `hover.mouseMoved` (events per
+second), `hover.cursorToCallback.ms` (milliseconds between the mouse-moved event timestamp and the
+hover callback — the part that is pure AppKit/SwiftUI delivery), `hover.select.scannedItems` (how
+many items the linear id lookup walks), `nav.isKeyboardNavigating.writes` vs `.noopWrites` (writes
+that did not change the value), `nav.isMultiSelectActive.changes` vs `.noopWrites` (the flag every
+row body reads — a `.changes` in a hover window means the rows were invalidated),
 `nav.leadHistoryItem.changed/unchanged`, `decorator.accessibilityLabel`,
 `decorator.application.lookup`, `colorImage.from` vs `colorImage.cached`,
-`decorator.previewText`, `historyItem.imageData` vs `historyItem.imageData.cached`
+`decorator.previewText` vs `decorator.previewText.cached`,
+`historyItem.imageData` vs `historyItem.imageData.cached`, `accessibility.announce.skipped` vs
+`.posted`, `preview.autoOpen.skipped.*` / `.scheduled` / `.fired` / `.cancelled`
 and the `list.row.body` / `list.row.listItem.body` re-evaluations. Together they show whether the
 lag is delivery, state propagation or per-row work.
+
+Everything that runs on **every** selection change is deliberately counter-only, without a
+`Perf.measure` interval: the signpost pair plus its formatted metadata costs ~50–70 µs, which is
+more than the code it would measure (`NSWorkspace.shared.isVoiceOverEnabled` is ~20 µs, the whole
+announce call ~70 µs, `startAutoOpen` with an open preview ~50 µs — see
+[performance-baseline.md](performance-baseline.md)). Adding a wrapper there measures the
+instrumentation, not the app.
 
 The decisive ratio is `list.row.body / hover.onHover` inside one `frame.stats` window: it is the
 number of rows one hover costs. An **empty** `frame.stats`-window counter set for
@@ -127,7 +136,9 @@ derived values are resolved on first layout and never again during a sweep.
 Counters to watch during the animation: `preview.swiftuiAnimation.ms` (the SwiftUI animation
 completion, which can drift from the AppKit window animation), `preview.itemView.body`,
 `preview.slideoutView.body`, `preview.autoOpen.scheduled/fired/cancelled`, and — most importantly
-— the `frame.stats` line of the second the animation happened in.
+— the `frame.stats` line of the second the animation happened in. While the slideout is closed it
+is not built at all (`SlideoutView` skips the content), so an empty `preview.itemView.body` there
+is expected rather than a sign that the preview failed to render.
 
 ## Frame statistics
 
@@ -139,6 +150,11 @@ frame.stats zone=frames fps=59.8 frames=60 hitches=2 dropped=3 worst=41.20ms cou
 
 `counters={…}` is everything aggregated in that same second, so a hitch can be tied to the code
 that ran in it (e.g. 40 `list.row.body` evaluations and 12 `colorImage.from` calls in one frame).
+It is trimmed to ~700 characters, so in a busy second the keys that sort last (`preview.*` sits
+after `nav.*`) are missing from the line. An absent counter in one window therefore means
+"truncated or absent", not automatically "did not run" — which is why the comparison procedure
+below is about ratios that survive every window (`list.row.body / hover.onHover`) and about
+counters that should be missing (`preview.autoOpen.scheduled` during a sweep with an open preview).
 
 The monitor only runs while the popup is open (started in `FloatingPanel.open`, stopped in
 `close`), so counters are flushed roughly once a second during the interaction and once more on

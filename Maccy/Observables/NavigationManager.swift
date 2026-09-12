@@ -73,6 +73,9 @@ class NavigationManager { // swiftlint:disable:this type_body_length
       Perf.count("nav.leadHistoryItem.changed")
 
       // Announce the visual selection change, keeping repeated navigation updates concise.
+      // Both calls below run on every selection change, so they stay free of signpost wrappers
+      // (a measured interval costs more than announcing does): the counters they emit show up in
+      // `frame.stats` as `accessibility.announce.*` and `preview.autoOpen.*`.
       if let item = leadHistoryItem {
         announceForAccessibility {
           var parts = [item.hasImage ? NSLocalizedString("history_item_image_accessibility_generic", comment: "") : item.title]
@@ -87,13 +90,11 @@ class NavigationManager { // swiftlint:disable:this type_body_length
       }
 
       let preview = AppState.shared.preview
-      Perf.measure("nav.leadHistoryItem.preview", zone: .preview) {
-        if leadHistoryItem != nil {
-          preview.resetAutoOpenSuppression()
-          preview.startAutoOpen()
-        } else {
-          preview.cancelAutoOpen()
-        }
+      if leadHistoryItem != nil {
+        preview.resetAutoOpenSuppression()
+        preview.startAutoOpen()
+      } else {
+        preview.cancelAutoOpen()
       }
     }
   }

@@ -231,13 +231,32 @@ class SlideoutController {
     resizingMode = .none
   }
 
+  /// Called on every selection change, so the cheap "nothing to do" checks come first.
+  ///
+  /// While the preview is already on screen there is nothing to schedule — and nothing pending to
+  /// cancel either, because every path that opens the preview goes through `togglePreview`, which
+  /// cancels the pending task itself. That is the steady state during a cursor sweep (the preview
+  /// stays open and follows the cursor), and returning before touching the task keeps it free.
   func startAutoOpen() {
+    guard !state.isOpen else {
+      Perf.count("preview.autoOpen.skipped.alreadyOpen")
+      return
+    }
+
     cancelAutoOpen()
 
-    guard Defaults[.openPreviewAutomatically] else { return }
-    guard autoOpenEnabled else { return }
-    guard !autoOpenSuppressed else { return }
-    guard !state.isOpen else { return }
+    guard Defaults[.openPreviewAutomatically] else {
+      Perf.count("preview.autoOpen.skipped.disabled")
+      return
+    }
+    guard autoOpenEnabled else {
+      Perf.count("preview.autoOpen.skipped.notEnabled")
+      return
+    }
+    guard !autoOpenSuppressed else {
+      Perf.count("preview.autoOpen.skipped.suppressed")
+      return
+    }
 
     Perf.count("preview.autoOpen.scheduled")
     autoOpenTask = Task { @MainActor in

@@ -365,3 +365,46 @@
       воспроизводились вручную.
 34.3. Разобраться с `ColorImage.from` в теле строки: 1 вызов на каждую пересобранную строку, хотя
       результат нужен только при включённом свотче и только для hex-заголовков.
+
+## 35. Что было запрошено (ход 13)
+
+35.1. Профилировать и убрать то, что осталось на каждое изменение выделения:
+      `announceForAccessibility` и `preview.startAutoOpen`.
+
+## 36. Что сделано
+
+36.1. Профилирование (signpost-интервалы вокруг каждой операции, живой свип, 200 элементов):
+      `accessibility.voiceOverCheck` p50 **0.02 мс**, `nav.announce` p50 **0.07 мс**,
+      `preview.autoOpen.start` p50 **0.05 мс**, `cancel` **0.00 мс**, `nav.leadHistoryItem.preview`
+      p50 **0.07 мс** (n = 106…157). Вывод: обе операции уже ничтожны (VoiceOver выключен → текст
+      объявления не строится), а обёртка `Perf.measure` (50–70 мкс) дороже измеряемого кода.
+36.2. Снял `Perf.measure` с этого пути (`nav.announce`, `nav.leadHistoryItem.preview`,
+      `preview.autoOpen.start/cancel`, `accessibility.voiceOverCheck`); счётчики оставил.
+36.3. `SlideoutController.startAutoOpen`: проверка «превью уже открыто» (`state.isOpen`, включая
+      `.opening`) идёт первой и выходит **не трогая** таймер; `cancelAutoOpen()` — только перед
+      перепланированием (и до остальных guard'ов, чтобы выключение настройки на ходу не оставило
+      запланированное открытие).
+36.4. `HistoryItemDecorator.previewText` кэшируется по элементу (`cachedPreviewText`,
+      `@ObservationIgnored`, сброс в `invalidateDerivedValues()`), счётчик
+      `decorator.previewText.cached`.
+36.5. Тесты: `PreviewAutoOpenTests` (4 теста: открытое превью не трогает таймер, `.opening` тоже
+      «открыто», свип по закрытому превью заменяет таймер, выключение настройки отменяет
+      запланированное) + кэш `previewText` в `NavigationSelectionTests`.
+36.6. Проверки: preflight 0 error, сборка ok, целевые классы 27/27, полная `MaccyTests` 78 тестов —
+      падают только известные средовые (`HistoryItemDecoratorTests` на locale, `ClipboardTests`
+      на foreground Xcode).
+36.7. Живой повтор (та же копия истории, Debug, та же инструментация, свип курсора Peekaboo):
+      строк на hover **3.98 → 1.98**, `preview.autoOpen.scheduled/cancelled` за свип **0/0**
+      (при открытом превью), `decorator.previewText` 9 вычислений / 27 попаданий в кэш вместо
+      вычисления на каждый hover, «курсор → подсветка» p50 4.6 → **3.2 мс**, fps p50 50.3,
+      худший кадр 34–90 мс. В signpost-потоке `nav.announce`, `preview.autoOpen.start/cancel`,
+      `accessibility.voiceOverCheck` больше нет.
+
+## 37. Что предложено
+
+37.1. Остаток на hover — это layout/commit двух пересобранных строк; дальше нужен Instruments
+      (SwiftUI-трейс), а не счётчики.
+37.2. Подтвердить в Release: снятые обёртки не должны менять абсолютные числа, но Release-прогон
+      покажет, не осталась ли где-то завязка на `#if DEBUG`.
+37.3. Кэш `previewText` стоит покрыть замером на HTML/RTF-элементах (в этом прогоне их в окне
+      свипа почти не было, поэтому выигрыш в мс не видно).

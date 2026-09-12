@@ -214,6 +214,28 @@ final class NavigationSelectionTests: XCTestCase {
     XCTAssertEqual(counters["nav.isMultiSelectActive.changes"]?.calls ?? 0, 0, description)
   }
 
+  /// The preview asks for `previewText` on every selection change while it is open, and building
+  /// it decodes the stored RTF/HTML representation. Same story as the other derived values: it is
+  /// resolved once per item.
+  func testPreviewTextIsResolvedOnceAndInvalidated() {
+    Perf.setEnabled(true)
+    let decorator = makeDecorator(title: "foo")
+    PerfCounters.shared.flush()
+
+    XCTAssertEqual(decorator.previewText, "foo")
+    XCTAssertEqual(decorator.previewText, "foo")
+
+    var counters = PerfCounters.shared.flush()
+    XCTAssertEqual(counters["decorator.previewText"]?.calls, 1, PerfCounters.describe(counters))
+    XCTAssertEqual(counters["decorator.previewText.cached"]?.calls, 1, PerfCounters.describe(counters))
+
+    decorator.invalidateDerivedValues()
+    _ = decorator.previewText
+
+    counters = PerfCounters.shared.flush()
+    XCTAssertEqual(counters["decorator.previewText"]?.calls, 1, PerfCounters.describe(counters))
+  }
+
   // MARK: - Helpers
 
   private func makeDecorator(title: String, image: NSImage? = nil) -> HistoryItemDecorator {
@@ -247,5 +269,88 @@ final class NavigationSelectionTests: XCTestCase {
     NSRect(x: 0, y: 0, width: 20, height: 20).fill()
     image.unlockFocus()
     return image
+  }
+}
+
+/// `startAutoOpen` runs on every selection change. The steady state during a cursor sweep is a
+/// preview that is already on screen and follows the cursor — for those calls the timer must not
+/// be touched at all, while a swing over a closed preview must still replace the pending timer.
+@MainActor
+final class PreviewAutoOpenTests: XCTestCase {
+  private var controller: SlideoutController!
+  private var savedOpenPreviewAutomatically: Bool!
+
+  override func setUp() {
+    super.setUp()
+    PerfCounters.shared.reset()
+    savedOpenPreviewAutomatically = Defaults[.openPreviewAutomatically]
+    Defaults[.openPreviewAutomatically] = true
+    controller = SlideoutController(onContentResize: { _ in }, onSlideoutResize: { _ in })
+  }
+
+  override func tearDown() {
+    controller.cancelAutoOpen()
+    controller = nil
+    Defaults[.openPreviewAutomatically] = savedOpenPreviewAutomatically
+    Perf.setEnabled(nil)
+    PerfCounters.shared.reset()
+    super.tearDown()
+  }
+
+  func testOpenPreviewIsNotRescheduled() {
+    Perf.setEnabled(true)
+    controller.state = .open
+    PerfCounters.shared.flush()
+
+    for _ in 0..<5 {
+      controller.startAutoOpen()
+    }
+
+    let counters = PerfCounters.shared.flush()
+    let description = PerfCounters.describe(counters)
+    XCTAssertEqual(counters["preview.autoOpen.skipped.alreadyOpen"]?.calls, 5, description)
+    XCTAssertNil(counters["preview.autoOpen.scheduled"], description)
+    XCTAssertNil(counters["preview.autoOpen.cancelled"], description)
+  }
+
+  func testOpeningPreviewCountsAsOpen() {
+    Perf.setEnabled(true)
+    controller.state = .opening
+    controller.startAutoOpen()
+
+    let counters = PerfCounters.shared.flush()
+    XCTAssertEqual(counters["preview.autoOpen.skipped.alreadyOpen"]?.calls, 1,
+                   PerfCounters.describe(counters))
+    XCTAssertNil(counters["preview.autoOpen.scheduled"], PerfCounters.describe(counters))
+  }
+
+  func testSweepOverAClosedPreviewReplacesThePendingTimer() {
+    Perf.setEnabled(true)
+    controller.state = .closed
+
+    controller.startAutoOpen()
+    controller.startAutoOpen()
+
+    let counters = PerfCounters.shared.flush()
+    let description = PerfCounters.describe(counters)
+    XCTAssertEqual(counters["preview.autoOpen.scheduled"]?.calls, 2, description)
+    XCTAssertEqual(counters["preview.autoOpen.cancelled"]?.calls, 1, description)
+  }
+
+  /// Cancelling the pending timer before bailing out still has to happen: turning the setting off
+  /// mid-sweep must not leave a scheduled open behind.
+  func testDisabledSettingCancelsThePendingTimer() {
+    Perf.setEnabled(true)
+    controller.state = .closed
+    controller.startAutoOpen()
+
+    Defaults[.openPreviewAutomatically] = false
+    controller.startAutoOpen()
+
+    let counters = PerfCounters.shared.flush()
+    let description = PerfCounters.describe(counters)
+    XCTAssertEqual(counters["preview.autoOpen.scheduled"]?.calls, 1, description)
+    XCTAssertEqual(counters["preview.autoOpen.cancelled"]?.calls, 1, description)
+    XCTAssertEqual(counters["preview.autoOpen.skipped.disabled"]?.calls, 1, description)
   }
 }

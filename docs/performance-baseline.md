@@ -209,8 +209,77 @@ What is left, and what it is not:
   "modifying state during view update" messages; `hover.cursorToCallback.ms` p50 9.2 ms (min 2.4,
   max 15.3), `fps` p50 52.4.
 
+## After removing the per-selection tail — announce and auto-open
+
+The previous section left two things on the per-selection path: `announceForAccessibility` and
+`preview.startAutoOpen`/`resetAutoOpenSuppression`, both called from `leadHistoryItem.didSet`.
+They were profiled first, with signpost intervals around each one (2026-09-12, Debug, the same
+200-item store and scenario):
+
+| path | samples | min | p50 | max |
+| --- | --- | --- | --- | --- |
+| `accessibility.voiceOverCheck` (`NSWorkspace.shared.isVoiceOverEnabled`) | 106 | 0.010 ms | **0.020 ms** | 0.050 ms |
+| `nav.announce` (the whole call, check included) | 106 | 0.06 ms | **0.07 ms** | 0.12 ms |
+| `preview.autoOpen.start` (guards + `cancelAutoOpen`) | 112 | 0.04 ms | **0.05 ms** | 1.32 ms |
+| `preview.autoOpen.cancel` | 116 | 0.00 ms | **0.00 ms** | 0.07 ms |
+| `nav.leadHistoryItem.preview` (wrapper around the two above) | 157 | 0.02 ms | **0.07 ms** | 1.36 ms |
+
+The numbers say the same thing twice:
+
+* Both paths are already negligible. VoiceOver is off in this environment, so the announcement text
+  is never built — the whole call is one `isVoiceOverEnabled` check at ~20 µs. Auto-open does no
+  work when the preview is already on screen (the steady state of a sweep), ~50 µs when it has to
+  reschedule the timer.
+* The *measurement* cost more than the code: `nav.announce` (70 µs) is ~3.5× its own content
+  (voiceOverCheck, 20 µs) — `Perf.measure` is a signpost interval pair plus a formatted metadata
+  string. Wrapping per-event work in it distorts exactly what it measures.
+
+So the change was to take the signposts back out of this path and keep the counters:
+
+* `Perf.measure` wrappers removed from `nav.announce`, `nav.leadHistoryItem.preview`,
+  `preview.autoOpen.start`, `preview.autoOpen.cancel` and `accessibility.voiceOverCheck`; the
+  counters (`accessibility.announce.skipped/posted`, `preview.autoOpen.skipped.*`, `scheduled`,
+  `fired`, `cancelled`) stay, so a hover window still shows that the path ran.
+* `SlideoutController.startAutoOpen` returns before touching the timer when the preview is already
+  open (`state.isOpen`, which includes `.opening`) — the pending-task cancel is skipped, not just
+  made cheap. Cancelling still happens before the other guards bail out, so switching
+  `openPreviewAutomatically` off mid-sweep cannot leave a scheduled open behind.
+* `HistoryItemDecorator.previewText` is cached per item like the other derived values (it decodes
+  the stored RTF/HTML representation, and the preview asks for it on every selection change while
+  it is open). Counter: `decorator.previewText` vs `decorator.previewText.cached`.
+
+Replayed with the same scenario (status-item click, `move` sweep with `smooth: true` over 20 rows,
+preview open and following the cursor):
+
+| metric | previous section | now |
+| --- | --- | --- |
+| row bodies rebuilt per hover event | 3.98 | **1.98** (85 bodies / 43 hovers) |
+| `accessibility.announce.skipped` per hover | — | 0.98 (never `posted`, VoiceOver off) |
+| `preview.autoOpen.scheduled` / `cancelled` during the sweep | — | **0 / 0** |
+| `preview.autoOpen.skipped.alreadyOpen` per hover | — | 0.67 (undercounted, see caveats) |
+| `decorator.previewText` computed vs cached | 1 compute per hover | **9 computes / 27 cache hits** |
+| `decorator.hasImage`, `application.lookup`, `accessibilityLabel`, `imageData` | 0 | 0 |
+| `hover.cursorToCallback.ms`, mean per second | p50 4.6 ms | **p50 3.2 ms** (min 2.7, max 9.2) |
+| `fps` while sweeping | 36.0 – 58.9 | 37.8 – 58.5 (p50 50.3) |
+| `hitches` / `dropped` per second | up to 12 / 25 | up to 11 / 23 |
+| worst frame gap while sweeping | 35.6 – 130.5 ms | 34.4 – 90.4 ms |
+
+The remaining cost of one hover event is the selection change itself: **2** row bodies (the row
+losing the selection and the row gaining it), one `PreviewItemView.body` for the item the preview
+now shows, one VoiceOver check and one already-open check on the auto-open timer. Nothing in that
+list is work that can be dropped without changing what the popup does — the next thing to look at
+is the SwiftUI layout/commit of those two rows, which needs Instruments rather than counters.
+
 ## Caveats
 
+* `frame.stats` prints at most ~700 characters of counters, so in a busy second the keys that sort
+  last (`preview.*` before `nav.*`) are cut off. The per-hover ratios above therefore undercount the
+  `preview.autoOpen.*` counters; the reliable figures are the ones that appear in every window
+  (`list.row.body`, `accessibility.announce.skipped`) and the ones that never appear at all
+  (`preview.autoOpen.scheduled` / `cancelled` during a sweep with the preview open).
+* `startAutoOpen` still schedules a `Task` per selection change while the preview is **closed**
+  (`preview.autoOpen.scheduled` 8–17 per second in a closed-preview sweep, cancelled just as
+  often), so the timer never fires while the cursor keeps moving. That path is unchanged here.
 * The instrumentation is on, which adds one lock + dictionary update per counter (~1000 s⁻¹ in the
   worst second) — measured work, not free, but two orders of magnitude below the observed stalls.
 * The single worst frame gaps (≥0.5 s, e.g. `worst=1024.59ms`) are ~10× the rest and always land in

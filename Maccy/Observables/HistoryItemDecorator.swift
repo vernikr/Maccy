@@ -31,6 +31,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
   @ObservationIgnored private var cachedHasImage: Bool?
   @ObservationIgnored private var cachedAccessibilityLabel: String?
   @ObservationIgnored private var cachedAccessibilityLabelContext: MultiSelectionContext?
+  @ObservationIgnored private var cachedPreviewText: String?
 
   var application: String? {
     if item.universalClipboard {
@@ -71,7 +72,17 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
   var thumbnailImageGenerationTask: Task<(), Error>?
   var previewImage: NSImage?
   var previewText: String {
-    Perf.counted("decorator.previewText") { item.previewableText }
+    if let cachedPreviewText {
+      Perf.count("decorator.previewText.cached")
+      return cachedPreviewText
+    }
+
+    // `previewableText` walks the stored contents, and for rich items it decodes the RTF/HTML
+    // representation. The preview asks for it again on every selection change while it is open,
+    // so the answer is remembered until the item changes underneath the decorator.
+    let value = Perf.counted("decorator.previewText") { item.previewableText }
+    cachedPreviewText = value
+    return value
   }
   var thumbnailImage: NSImage?
   var applicationImage: ApplicationImage
@@ -141,6 +152,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     cachedHasImage = nil
     cachedAccessibilityLabel = nil
     cachedAccessibilityLabelContext = nil
+    cachedPreviewText = nil
   }
 
   private func buildAccessibilityLabel(_ context: MultiSelectionContext?) -> String {
