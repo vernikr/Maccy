@@ -188,6 +188,22 @@ close. Counters accumulate in the last partial second otherwise.
    `fps/hitches/worst`, and the counter set of the worst second.
 4. Only then change code, and re-measure with the same scenario.
 
+Two things learned the hard way:
+
+* **Rebuild the baseline and measure it in the same session.** The same build measured 252 ms and
+  70 ms cold in two sessions with an identical scenario; machine state moves these medians further
+  than most changes do. Keep the trigger identical too.
+* **Trigger the popup by reopening the app**: `open -a <app>` on a running instance goes through
+  `applicationShouldHandleReopen` → `panel.toggle` and landed 4/4, where a coordinate click on the
+  status item landed about half the time (`peekaboo menubar click` is the reliable alternative). A
+  retry loop around a flaky trigger warms up exactly what it measures.
+
+To tell "working" from "waiting" inside a stall, `/usr/bin/sample <pid> 6 1 -file /tmp/s.txt` needs
+no Instruments at all, and the tree's own flags lie: an offscreen `NSWindow` never runs an update
+pass (`didUpdateNotification` fires zero times) while `needsLayout`/`needsDisplay` stay raised, so
+neither says whether anything is happening. `clock_gettime(CLOCK_THREAD_CPUTIME_ID)` per slice is
+the cheap honest signal — it is what `PrewarmQuiescence` uses.
+
 The numbers to beat, and the exact live-GUI procedure behind them, are in
 [performance-baseline.md](performance-baseline.md).
 
@@ -207,7 +223,34 @@ open -n -g -a .build/Build/Products/Debug/Maccy.app \
 ```
 
 `MACCY_STORAGE_PATH` is only honoured together with `enable-testing` (see `Storage.init`), which
-also moves preferences into a throwaway suite and turns off update checks. Drive the popup with
+also moves preferences into a throwaway suite and turns off update checks.
+
+#### Release builds
+
+`enable-testing` and `MACCY_STORAGE_PATH` are inside `#if DEBUG`, so in Release they do nothing and
+the app would read *and write* the real store, the real preferences and the real window geometry.
+Redirect the home instead — `CFFIXED_USER_HOME` moves both `URL.applicationSupportDirectory` and the
+preferences domain:
+
+```bash
+mkdir -p "/tmp/maccy-rel-home/Library/Application Support/Maccy"
+cp /tmp/maccy-baseline/Storage.sqlite \
+  "/tmp/maccy-rel-home/Library/Application Support/Maccy/Storage.sqlite"
+
+open -n -g -a .build-rel/Build/Products/Release/Maccy.app \
+  --env MACCY_PERF=1 --env CFFIXED_USER_HOME=/tmp/maccy-rel-home
+```
+
+After the run, check that the redirect is where the app worked (a fresh `Storage.sqlite-wal` in
+`/tmp/maccy-rel-home/…`) and that nothing of the user's moved:
+
+```bash
+stat -f '%m %Sm %N' "$HOME/Library/Preferences/org.p0deje.Maccy.plist" \
+  "$HOME/Library/Containers/org.p0deje.Maccy/Data/Library/Preferences/org.p0deje.Maccy.plist" \
+  "$HOME/Library/Containers/org.p0deje.Maccy/Data/Library/Application Support/Maccy/Storage.sqlite"
+```
+
+Drive the popup with
 `⌘⇧C` or by clicking the status item, and move the real cursor across the rows — AppleScript and
 AX presses do not produce `mouseMoved` events, so hover has to come from a physical pointer.
 Peekaboo MCP does move the real pointer: `click` with `foreground: true` on the status item, then

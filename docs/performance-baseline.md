@@ -125,8 +125,9 @@ open. `PerfFrameMonitor.warmUp(on:)` now creates and discards a display link dur
 presents the popup's view tree while the panel is still hidden, so that the first open does not pay
 for it: the panel is sized as an open would size it, laid out, ordered front **outside every screen**
 (the `constrainFrameRect(_:to:)` override keeps AppKit from pulling it back onto a screen) and made
-key for one runloop turn before being ordered out. Nothing is ever visible and the app is never
-activated. Skipped in an XCTest host and when VoiceOver is on (a focus change is audible there).
+key for as long as the warm-up slices keep finding work, before being ordered out. Nothing is ever
+visible and the app is never activated. Skipped in an XCTest host and when VoiceOver is on (a focus
+change is audible there).
 
 Measured with the *same* scenario for every build — fresh instance, 200-item copy of the store, the
 popup triggered by reopening the app (`open -a`, i.e. `applicationShouldHandleReopen` → `panel.toggle`),
@@ -140,9 +141,15 @@ per build, `popup.open.firstFrame`:
 | + display-link warm-up | 127.4 (116.3 – 138.1) | 80.7 | 47 ms |
 | + making the panel key offscreen, final | **128.9 / 99.0** (124.8 – 136.0) | 70.2 | **59 ms** |
 
-The last two rows are the same code path measured twice; 0.2 s is the shortest runloop turn that
-reliably lands the key/appearance work in the warm-up (0.05 s leaves 47 ms behind, 0.1 s is
-inconsistent at 81–126 ms). Where the work goes, per run:
+> **These absolutes are only valid inside the session they were taken in.** The same HEAD build
+> measured 252.4 ms cold there and 70.1 ms in the session that produced the turn table below — same
+> store, same scenario, same trigger, same build settings. Every comparison in this document is
+> therefore re-measured against its own baseline *in one session*; a difference of tens of
+> milliseconds between two sessions says nothing about the code. See the caveat at the end of this
+> section.
+
+The last two rows are the same code path measured twice, with the runloop turn held at 0.2 s. Where
+the work goes, per run:
 
 | phase | cost at launch | what it moves off the first open |
 | --- | --- | --- |
@@ -155,16 +162,83 @@ First open: **238.6 – 334.0 ms → 124.8 – 136.0 ms** (median 252.4 → 128.
 `popup.open.setContentSize` from 2.7 – 6.7 ms to 0.1 – 0.4 ms; `makeKey` stays cold (13 – 25 ms) and
 the remaining ~59 ms is the part that can only happen on a window that is really on screen.
 
-Cost: the warm-up itself is 450 – 515 ms of main-thread work about a second after launch, of which
-200 ms is the deliberate runloop turn. That is a deliberate trade — nobody is waiting for the popup
-then, and a click that does arrive during the turn is respected (the panel is left open instead of
-being ordered out from under the user).
+Cost: the warm-up itself is of the order of 400 ms of main-thread work about a second after launch
+(see the turn section below). That is a deliberate trade — nobody is waiting for the popup then, and
+a click that does arrive during the turn is respected (the panel is left open instead of being
+ordered out from under the user).
 
 Covered by `MaccyTests/FloatingPanelPrewarmTests`: the panel is sized like an open would size it, the
 content is laid out, the window is ordered front **outside every screen** and never left visible, the
 warm-up happens once, and it is skipped once the panel has been shown. The offscreen assertion is
 what caught `constrainFrameRect` pulling the offscreen window back onto a screen — i.e. a popup
 flashing in a corner at launch.
+
+### The warm-up turn: from a fixed 0.2 s to "until the slices stop working"
+
+A duration is the wrong shape for this turn. What the tree does after `makeKey()` was sampled per
+20 ms slice (main-thread CPU per slice, one launch):
+
+```
+37.3  75.6  9.6  9.8  6.5  3.5  3.7  2.2  2.3  2.3  2.2  2.1  2.0  2.1  2.3  2.3 … 0.1
+```
+
+Two heavy slices, two more of ~10 ms, and then the same window dribbles 2–5 ms per slice for another
+~300 ms without anything the first open notices. `PrewarmQuiescence` (in `FloatingPanel.swift`) ends
+the turn when a slice burns less than a fifth of the busiest one so far, with a 1 ms floor, at least
+4 slices and a ceiling of 25 slices (0.5 s). Everything is measured with
+`clock_gettime(CLOCK_THREAD_CPUTIME_ID)`, so "work" means the main thread actually ran, not that some
+view flag happened to be set (see the caveat about `needsLayout` in `AGENTS.md`).
+
+The whole trade-off, one session, 3 runs per configuration, cold/warm = `popup.open.firstFrame`
+medians:
+
+| turn | warm-up total (ms) | cold (ms) | warm (ms) | cold − warm |
+| --- | --- | --- | --- | --- |
+| ~40 ms (the turn is effectively off) | 289 – 313 | 82.8 | 67.6 | 15 ms |
+| ~135 ms (3 slices) | 381 – 391 | 65.8 | 69.3 | ≈0 |
+| 200 ms, fixed (the previous version) | 437 – 457 | 70.1 | 66.8 | 3 ms |
+| adaptive, final (4–5 slices, 157–172 ms) | 410 – 421 | 64.7 | 65.4 | **≈0** |
+| "until the window goes completely quiet" (25 slices, 855–870 ms) | 855 – 870 | 68.5 | 66.0 | ≈0 |
+
+Readings:
+
+* **The remaining first-open penalty is ~15 ms, and ~130 ms of turn removes it.** Waiting for the
+  tree to go completely quiet costs twice the launch time and buys nothing: 855–870 ms of warm-up for
+  the same 65–68 ms open.
+* **The adaptive turn lands where the fixed 0.2 s was tuned to**, which is the point — the fixed value
+  was a worst case, chosen in a session where 50 ms of turn left 47 ms of work behind, and it is paid
+  on every launch whether the work needs it or not. On a slower machine the fraction-based ceiling
+  keeps the turn alive instead of cutting it in the middle of the work.
+* The warm-up's own cost is dominated by the slices: layout 94–99 ms, display-link warm-up 61–63 ms, the turn 157–172 ms, total 410–421 ms.
+
+### Release (-O) vs Debug: the cold start and the warm-up
+
+Same scenario, same session, 4 runs per cell, medians of `popup.open.firstFrame`:
+
+| build | warm-up | cold (ms) | warm (ms) | cold − warm |
+| --- | --- | --- | --- | --- |
+| Debug `-Onone` | none | 171.4 (169.1 – 177.3) | 71.7 | ~100 ms |
+| Release `-O` | none | 167.4 (163.5 – 181.0) | 63.3 | ~104 ms |
+| Debug `-Onone` | adaptive | **64.7** (63.4 – 68.3) | 65.4 | ≈0 |
+| Release `-O` | adaptive | **66.7** (61.0 – 72.3) | 62.7 | ~4 ms |
+
+Readings:
+
+* **The cold open is structural, not `-Onone`.** Optimized or not, the first open past a repeat costs
+  ~100 ms, and the medians are 171 vs 167 ms: `-O` does not touch it.
+* **The warm-up removes it in both configurations**: 171 → 65 ms in Debug, 167 → 67 ms in Release.
+* **`-Onone` costs ~8 ms (11 %) on the steady path**: the repeat open is 71.7 ms in Debug against
+  63.3 ms in Release with no warm-up at all.
+* **The warm-up itself is configuration-independent**: 410–421 ms in Debug against 396–432 ms in
+  Release, with the turn at 157–172 ms in both, the layout a little cheaper in Release (88–96 ms
+  against 93–99 ms) and the display-link warm-up identical (61–63 ms).
+* **The stopping rule sees the same picture in Release**: 4–5 slices, busiest slice 67–77 ms
+  (Debug 70–103 ms).
+
+A Release run needs its own isolation — `enable-testing` and `MACCY_STORAGE_PATH` are compiled out
+with `#if DEBUG`, so the build reads the real home directory. `CFFIXED_USER_HOME` redirects the store
+*and* the preferences; the recipe and the post-run checks are in
+[performance-profiling.md](performance-profiling.md).
 
 ### After the thumbnail fix — rasterization off the main thread
 
@@ -192,6 +266,12 @@ panel's `NSTextView` being built) and 192 ms under `FloatingPanel.toggle` (the p
 Covered by `MaccyTests/ThumbnailRasterizationTests`: the rasterization runs off the main thread, the
 row receives an image backed by an `NSBitmapImageRep`, the aspect ratio and the requested scale
 survive, `resized(to:)` stays lazy, and an item without an image never rasterizes.
+
+Caveat on comparing numbers across sessions: the same code measured 238.6 – 334.0 ms cold in one
+session and 63.4 – 77.3 ms in another, with the trigger, the store, the item count and the popup
+position all held constant. Machine state (other apps, thermal, the user's own Maccy instance being
+up or not) moves these medians by more than most of the changes in this document do. Rebuild the
+baseline and measure it in the same session, or do not compare at all.
 
 Side observation from the same runs: in every fresh instance the preview panel toggles itself open
 ~1.9 s after `history.load`, with the popup still closed

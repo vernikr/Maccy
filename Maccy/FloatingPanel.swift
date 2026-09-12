@@ -1,6 +1,56 @@
 import Defaults
 import SwiftUI
 
+/// Decides when the warm-up runloop turn has done the work it exists for.
+///
+/// The turn used to be a fixed 0.2 s — the shortest that reliably moved the key-window work off
+/// the first open in the session it was tuned in — and that is a worst case paid on every launch,
+/// whether the work needs it or not. What the tree actually does after `makeKey()` cannot be told
+/// from a duration either: sampled per 20 ms slice, the first two slices burn 37 ms and 75 ms of
+/// main-thread CPU, the next two 6–13 ms each, and then the same window dribbles 2–5 ms per slice
+/// for another 300 ms without anything the first open notices. So the turn ends on the dwell —
+/// once a slice stops burning a meaningful fraction of the busiest one — which follows the work
+/// instead of a number that was right for one machine on one day.
+struct PrewarmQuiescence {
+  /// One slice of runloop. Short enough that the turn ends close to the last work.
+  var sliceDuration: TimeInterval = 0.02
+  /// Slices to run before any stop is allowed: the key-window work starts asynchronously.
+  var minimumSlices = 4
+  /// A slice that burns less than this fraction of the busiest slice so far counts as idle.
+  var busyFraction = 0.2
+  /// Floor for the idle threshold, so a trivial peak cannot turn a few microseconds into the bar.
+  var minimumBusyMilliseconds = 1.0
+  /// Consecutive idle slices that end the turn.
+  var idleSlicesToStop = 2
+  /// Upper bound, so a tree that never settles cannot hold the launch.
+  var maximumSlices = 25
+
+  private(set) var slices = 0
+  private(set) var idleSlices = 0
+  private(set) var peakMilliseconds = 0.0
+
+  /// Whether the turn should keep running after a slice that burned `cpuMilliseconds`.
+  mutating func shouldContinue(afterSliceBurning cpuMilliseconds: Double) -> Bool {
+    slices += 1
+    peakMilliseconds = max(peakMilliseconds, cpuMilliseconds)
+
+    let idleThreshold = max(minimumBusyMilliseconds, peakMilliseconds * busyFraction)
+    idleSlices = cpuMilliseconds >= idleThreshold ? 0 : idleSlices + 1
+
+    guard slices < maximumSlices else { return false }
+    guard slices >= minimumSlices else { return true }
+    return idleSlices < idleSlicesToStop
+  }
+
+  /// CPU time the calling thread has burned so far, in milliseconds.
+  /// `clock_gettime` here is a vDSO call, cheap enough to sample every slice.
+  static func threadCPUMilliseconds() -> Double {
+    var time = timespec()
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
+    return Double(time.tv_sec) * 1000 + Double(time.tv_nsec) / 1_000_000
+  }
+}
+
 // An NSPanel subclass that implements floating panel traits.
 // https://stackoverflow.com/questions/46023769/how-to-show-a-window-without-stealing-focus-on-macos
 class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
@@ -147,7 +197,8 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
   /// The app itself is never activated. The panel is made key, because that is where a large part
   /// of the remaining cost lives (measured: the penalty of a first open over a repeat 166 → 59 ms),
   /// but not when VoiceOver is running — there a focus change is something the user hears (see
-  /// `prewarmMakesKey`).
+  /// `prewarmMakesKey`). The key state is held while the tree keeps working, not for a fixed
+  /// duration: see `PrewarmQuiescence`.
   func prewarm() {
     guard !didPrewarm, !hasEverBeenPresented, !isPresented, !isVisible else { return }
 
@@ -181,13 +232,22 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
     contentView?.displayIfNeeded()
 
     let keyWarmed = prewarmMakesKey
+    var turnMs = 0.0
+    var quiescence = PrewarmQuiescence()
     if keyWarmed {
       makeKey()
       // The focus and appearance work is driven by the key-window notifications and needs a few
       // runloop turns to run. It happens here so that the first open only pays a warm `makeKey`.
-      // 0.2 s was measured as the shortest turn that lands the work here every time: 0.05 s
-      // leaves 47 ms behind, 0.1 s is inconsistent (81–126 ms).
-      RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+      let turnStartedAt = Perf.now()
+
+      while true {
+        let cpuBefore = PrewarmQuiescence.threadCPUMilliseconds()
+        RunLoop.current.run(until: Date().addingTimeInterval(quiescence.sliceDuration))
+        let burned = PrewarmQuiescence.threadCPUMilliseconds() - cpuBefore
+        guard quiescence.shouldContinue(afterSliceBurning: burned) else { break }
+      }
+
+      turnMs = (Perf.now() - turnStartedAt) * 1000
     }
 
     // A runloop turn can deliver a click on the status item; leave a popup that was opened
@@ -210,6 +270,9 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
       "ms=\(Perf.milliseconds(Perf.now() - startedAt)) layout=\(Perf.milliseconds(layoutMs / 1000)) "
         + "present=\(Perf.milliseconds(presentMs / 1000)) "
         + "displayLink=\(Perf.milliseconds(linkMs / 1000)) "
+        + "turn=\(Perf.milliseconds(turnMs / 1000)) "
+        + "slices=\(quiescence.slices) idle=\(quiescence.idleSlices) "
+        + "peakCpu=\(Perf.milliseconds(quiescence.peakMilliseconds / 1000)) "
         + "size=\(String(format: "%.0fx%.0f", size.width, size.height)) "
         + "keyWarmed=\(keyWarmed) openedDuringWarmUp=\(openedDuringWarmUp) "
         + "layoutBuilt={\(PerfCounters.describe(layoutBuilt, limit: 160))} "
