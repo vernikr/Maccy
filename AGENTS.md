@@ -14,7 +14,12 @@
   Release-сборка: тот же `xcodebuild` с `-configuration Release`.
 - Версия: `MARKETING_VERSION` и `CURRENT_PROJECT_VERSION` в `Maccy.xcodeproj/project.pbxproj` (четыре
   строки, обе конфигурации); релиз этого форка (подпись, нотаризация, свой appcast вместо апстримного,
-  тег) — `docs/releasing.md`.
+  тег) — `docs/releasing.md` + `scripts/release.sh` (одна команда с `TEAM_ID`).
+- CI: `.github/workflows/tests.yml` на каждый push в `master` — `validate-pbxproj.py`, Debug-сборка и
+  `MaccyTests` без двух средовых `ClipboardTests`. Бейдж в README. Локально то же самое делает
+  `bash scripts/perf.sh build` + `xcodebuild test`.
+- Ключи Sparkle форка: публичный — `SUPublicEDKey` в `Maccy/Info.plist`, приватный — в связке ключей
+  машины, где его сгенерировали (`sign_update` при первом чтении спросит разрешение).
 - Прогон на копии реальной истории (не трогая данные пользователя):
   `open -n -g -a …/Debug/Maccy.app --env MACCY_PERF=1 --env MACCY_STORAGE_PATH=/tmp/copy.sqlite
   --args enable-testing` (env из `xcodebuild` в тест-хост не пробрасывается, а `open --env` — пробрасывает).

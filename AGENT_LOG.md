@@ -722,3 +722,53 @@
       падает с «tag exists locally but has not been pushed to p0deje/Maccy». Лечится явным
       `--repo vernikr/Maccy` (и `--verify-tag`), тег при этом пушить в origin нужно отдельно:
       `git push origin v2.7.2`.
+
+## 60. Что было запрошено
+
+60.1. Перевести баннер на английский.
+60.2. Разобраться с `Maccy/GlobalHotKey.swift` (зарегистрировать или удалить), чтобы preflight был чистым.
+60.3. Сделать репозиторий самодостаточным: GitHub Actions, который на каждый push собирает проект и
+      прогоняет `MaccyTests`, плюс бейдж статуса в README.
+60.4. Собрать подписанную и нотаризованную сборку 2.7.2, сгенерировать ключи Sparkle, положить их в
+      `Info.plist` и приложить архив к релизу с записью в appcast.
+
+## 61. Что сделано
+
+61.1. Баннер **уже английский** — проверил программно: в `README.md`, `CHANGELOG.md`, `appcast.xml` и
+      всех `docs/*.md` нет ни одной строки с кириллицей (русские — только `AGENTS.md` и `AGENT_LOG.md`,
+      это внутренние файлы агента). Переводить нечего; сообщил об этом пользователю.
+61.2. `Maccy/GlobalHotKey.swift` **удалён**: класс никем не инстанцируется (единственный вызов в его
+      конструкторе закомментирован), файла нет в `project.pbxproj`, и в коммитнутом pbxproj апстрима
+      его тоже нет — это остаток от июля 2024 (`0afb81d`, переход на NSPanel-попап). Preflight стал
+      `0 error(s), 0 warning(s)`.
+61.3. `.github/workflows/tests.yml` (новый): на push в `master`, pull request и вручную — выбор самого
+      свежего Xcode на раннере через `DEVELOPER_DIR`, `python3 scripts/validate-pbxproj.py`, Debug-сборка
+      и `MaccyTests` без двух средовых `ClipboardTests` (`-skip-testing` для `testIgnoreApplication` и
+      `testIgnoreAllApplicationsExcept` — они требуют, чтобы Xcode был frontmost, и падают и на апстриме).
+      Бейдж добавлен в README рядом с апстримными.
+61.4. `scripts/release.sh` (новый): проверяет версию/CHANGELOG/чистоту дерева, гоняет те же проверки,
+      что CI, делает Release-архив, подпись Developer ID, экспорт, нотаризацию, staple, zip,
+      `sign_update` и вставку `<item>` в `appcast.xml`; печатает оставшиеся шаги (коммит appcast, тег,
+      `gh release create --repo vernikr/Maccy`). Синтаксис проверен (`bash -n`), логика вставки в appcast
+      протестирована на копии файла (валидный XML, один item).
+61.5. Ключи Sparkle сгенерированы (`bin/generate_keys` из SPM-чекаута): приватный остался в связке
+      ключей, публичный `kfZtXtJQ1rmyaMjydt2XDq6yKsGrHPhAamkii1H4np8=` добавлен в `Maccy/Info.plist`
+      как `SUPublicEDKey` (проверено `plutil` в собранном бандле).
+61.6. **Подписанную и нотаризованную сборку собрать не удалось:** `security find-identity -v -p
+      codesigning` → `0 valid identities found`, то есть на этой машине нет сертификата Developer ID
+      Application, а нотаризация требует ещё и Apple ID/team id. Всё, что можно сделать без
+      сертификата, сделано: скрипт релиза целиком, ключи, appcast, инструкция.
+61.7. Побочное наблюдение: `sign_update` (первое чтение приватного ключа) блокируется на системном
+      запросе доступа к связке ключей — команда висела до таймаута, на экране висел диалог. Записал в
+      `docs/releasing.md` (шаг 4): нажать «Always Allow», чтобы дальше `scripts/release.sh` работал без
+      участия человека.
+61.8. `AGENTS.md`: в факты добавлены CI, `scripts/release.sh` и хранение ключей Sparkle.
+61.9. Проверки: preflight 0 error / 0 warning, Debug-сборка ok, `plutil -lint` ok, YAML воркфлоу
+      парсится, полная `MaccyTests` с пропуском двух средовых — 84 теста, 0 падений.
+
+## 62. Что предложено
+
+62.1. Подписанный релиз: нужен сертификат Developer ID Application (Apple Developer Program) и профиль
+      notarytool; дальше всё одной командой `TEAM_ID=… scripts/release.sh`.
+62.2. Приватный ключ Sparkle стоит сохранить вне связки ключей (например, в секрете CI) — без него
+      будущие релизы подписать нельзя, а перегенерация «осиротит» уже установленные сборки.

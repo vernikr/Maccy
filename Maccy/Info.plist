@@ -34,5 +34,10 @@
 	<true/>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/vernikr/Maccy/master/appcast.xml</string>
+	<!-- This fork's own Sparkle key: the private half is in the login keychain of the machine that
+	     signs a release, the public half here is what makes the updater accept it. Regenerating the
+	     pair invalidates every release signed with the old one. See docs/releasing.md. -->
+	<key>SUPublicEDKey</key>
+	<string>kfZtXtJQ1rmyaMjydt2XDq6yKsGrHPhAamkii1H4np8=</string>
 </dict>
 </plist>

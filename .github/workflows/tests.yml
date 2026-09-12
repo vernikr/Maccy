@@ -1,0 +1,53 @@
+name: Tests
+
+# Mirrors what is done locally before a release (docs/releasing.md, step 2): check the project's file
+# references, build Debug, run MaccyTests. The two ClipboardTests cases are skipped on purpose: they
+# assert that the *frontmost* application is Xcode, which is true on a developer's machine and not on
+# a runner, and they fail on upstream Maccy too (see AGENTS.md).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode on the runner
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$newest" ]; then
+            echo "DEVELOPER_DIR=$newest/Contents/Developer" >> "$GITHUB_ENV"
+          fi
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - name: Check the project's file references
+        run: python3 scripts/validate-pbxproj.py
+
+      - name: Build
+        run: |
+          xcodebuild build -project Maccy.xcodeproj -scheme Maccy -configuration Debug \
+            -derivedDataPath .build -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Test
+        run: |
+          xcodebuild test -project Maccy.xcodeproj -scheme Maccy -configuration Debug \
+            -derivedDataPath .build -destination 'platform=macOS' \
+            -only-testing:MaccyTests \
+            -skip-testing:MaccyTests/ClipboardTests/testIgnoreApplication \
+            -skip-testing:MaccyTests/ClipboardTests/testIgnoreAllApplicationsExcept \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""

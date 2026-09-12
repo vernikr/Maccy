@@ -7,6 +7,7 @@
 
 [![Downloads](https://img.shields.io/github/downloads/p0deje/Maccy/total.svg)](https://github.com/p0deje/Maccy/releases/latest)
 [![Build Status](https://img.shields.io/bitrise/716921b669780314/master?token=3pMiCb5dpFzlO-7jTYtO3Q)](https://app.bitrise.io/app/716921b669780314)
+[![Tests](https://github.com/vernikr/Maccy/actions/workflows/tests.yml/badge.svg)](https://github.com/vernikr/Maccy/actions/workflows/tests.yml)
 
 > ### Same Maccy, without the slowness
 >
