@@ -85,11 +85,12 @@ scripts/install.sh
 
 Maccy is sandboxed and its history lives in `~/Library/Containers/org.p0deje.Maccy`. An unsigned
 build — which is what a plain `xcodebuild` produces — is *not* sandboxed, so it would come up with an
-empty history in a different folder, which looks like data loss. The script signs the build (ad-hoc
-when you have no Apple certificate, which is enough for the sandbox to apply), **replaces
-`/Applications/Maccy.app` while keeping the container**, and backs both up first so a single command
-puts the old app back. Details, measurements and the ad-hoc caveats are in
-[docs/installing.md](docs/installing.md).
+empty history in a different folder, which looks like data loss. The script signs the build,
+**replaces `/Applications/Maccy.app` while keeping the container**, and backs both up first so a
+single command puts the old app back. If you have no Apple certificate it signs ad-hoc, which works
+except that every rebuild then looks like a new app to macOS (Accessibility has to be granted again);
+`scripts/create-signing-identity.sh` fixes that once with a local certificate. Details and
+measurements are in [docs/installing.md](docs/installing.md).
 
 Where to look next:
 
