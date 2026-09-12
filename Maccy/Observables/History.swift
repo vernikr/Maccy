@@ -131,6 +131,15 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
     Task {
       AppState.shared.popup.needsResize = true
     }
+    // The first open used to build and lay out the whole list tree inside its first frame; do it
+    // now, while the popup is still hidden, and the first open costs what a repeat costs.
+    // Not in an XCTest host: there is no popup to open there, and laying the real rows out during
+    // a test run makes the app's own history observable to the tests (it is what made
+    // `ThumbnailRasterizationTests.testItemWithoutAnImageNeverRasterizes` count rows it never drew).
+    Task { @MainActor in
+      guard !AppDelegate.isTestHost else { return }
+      AppState.shared.popup.prewarm()
+    }
   }
 
   @MainActor

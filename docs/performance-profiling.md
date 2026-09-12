@@ -71,8 +71,10 @@ which is the closest available signal to "the user sees the popup".
 | `popup.open.orderFrontRegardless` | Cost of ordering the window front. |
 | `popup.open.makeKey` | Cost of making the panel key. |
 | `popup.open.becameKey` | Time from the trigger until `windowDidBecomeKey`. |
+| `popup.open.displayLinkMonitor` | Creating the frame monitor's display link (0.1–0.2 ms once it is warmed up). |
 | `popup.open.firstFrame` | **Total** trigger → first presented frame, plus every step and note. |
 | `popup.open.cancelled` | The popup was closed before the first frame (e.g. toggle-off). |
+| `popup.prewarm` | One-shot, ~1 s after launch: the hidden popup is built, laid out, presented offscreen and made key, so the first open does not pay for any of it. Reports `layout`/`present`/`displayLink` durations, `keyWarmed` and what it built (`layoutBuilt`, `presentBuilt`). |
 | `history.load` | One-shot: fetch/decorate durations and item count. |
 
 Notes attached to `popup.open.firstFrame`:
@@ -80,12 +82,28 @@ Notes attached to `popup.open.firstFrame`:
 - `size=WxH` — the size the window was opened with,
 - `items=N` — how many history items existed at that moment (0 means `history.load()` was
   interleaved with this open),
-- `wasVisible=false` means the window had to be laid out from scratch.
+- `wasVisible=false` means the window had to be laid out from scratch,
+- `prewarmed=true` means `FloatingPanel.prewarm()` already built the tree before this open.
 
 Counters in the same window (`popup.verticalResize`, `popup.verticalResize.beforeFirstFrame`,
 `list.row.appear`, `list.row.body`, `history.pinnedItems`, `decorator.thumbnailImage.ms`)
 attribute the latency to the resize-after-open, the row count, the `pinnedItems`/`unpinnedItems`
 filter storm and the thumbnail generation.
+
+Two traps in this zone, both about the measurement rather than the app:
+
+- **The first display link of the process costs 62–70 ms inside the first open.** CoreAnimation
+  answers the first `CADisplayLink` of a display by enumerating every display mode
+  (`-[CADisplay _initWithDisplay:] → SLSIsDisplayModeVRR`, vectors of `CGSDisplayMode`). With
+  instrumentation on, that landed inside `popup.open.firstFrame` and was ~40 % of the cold-open
+  number. `PerfFrameMonitor.warmUp(on:)` moves it to `popup.prewarm`; without it, do not read a
+  cold `popup.open.firstFrame` as user-visible latency.
+- **Do not use the coordinate click on the status item as the trigger.** It lands only sometimes
+  (`AGENTS.md`, rule 20), and a retry loop can warm the very thing being measured. Reopening the
+  app is deterministic: `open -a .build/Build/Products/Debug/Maccy.app` on a running instance
+  reaches `applicationShouldHandleReopen` → `panel.toggle` → `source=panel.open`, 4 runs out of 4.
+  It activates the app first, so part of the activation cost falls outside the measured interval —
+  compare builds with the same trigger, not with the older click-based table.
 
 ## Zone 2 — hover selection
 

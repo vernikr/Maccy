@@ -5,6 +5,11 @@ import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
   static let isTesting = CommandLine.arguments.contains("enable-testing")
+
+  /// Whether this process is an XCTest host, as opposed to an app that was merely launched with
+  /// `enable-testing` to get an isolated store (the live performance runs do that too).
+  static let isTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    || NSClassFromString("XCTestCase") != nil
   var panel: FloatingPanel<ContentView>!
 
   @objc

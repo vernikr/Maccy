@@ -8,6 +8,17 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
   var statusBarButton: NSStatusBarButton?
   let onClose: () -> Void
 
+  /// Whether `prewarm()` already built the view tree, reported as a note of the first open.
+  private(set) var didPrewarm = false
+  /// Once the panel has been shown there is nothing left to warm.
+  private var hasEverBeenPresented = false
+  /// Whether `prewarm()` may make the panel key. VoiceOver turns it off, because there a focus
+  /// change on an invisible window is something the user hears; tests turn it off so warming up
+  /// does not touch the test host's key window.
+  var prewarmMakesKey = !NSWorkspace.shared.isVoiceOverEnabled
+  /// True only while `prewarm()` runs; see `constrainFrameRect(_:to:)`.
+  private var isPrewarming = false
+
   override var isMovable: Bool {
     get { Defaults[.popupPosition] != .statusItem }
     set {}
@@ -79,13 +90,10 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
     probe.begin(source: "panel.open")
     Perf.count("popup.open")
 
-    let size = Defaults[.windowSize]
-    let miniumHeight: CGFloat = AppState.shared.popup.minimumHeight
-    let finalWidth = min(frame.width, size.width)
-    let finalHeight = max(min(height, size.height), miniumHeight)
+    let finalSize = contentSize(for: height)
 
     var stepStartedAt = Perf.now()
-    setContentSize(NSSize(width: finalWidth, height: finalHeight))
+    setContentSize(finalSize)
     probe.step("popup.open.setContentSize", since: stepStartedAt)
 
     stepStartedAt = Perf.now()
@@ -101,24 +109,155 @@ class FloatingPanel<Content: View>: NSPanel, NSWindowDelegate {
     probe.step("popup.open.makeKey", since: stepStartedAt)
 
     isPresented = true
+    hasEverBeenPresented = true
 
-    probe.note("size=\(String(format: "%.0fx%.0f", finalWidth, finalHeight))")
+    probe.note("size=\(String(format: "%.0fx%.0f", finalSize.width, finalSize.height))")
     probe.note("items=\(AppState.shared.history.items.count)")
     probe.note("position=\(popupPosition)")
     probe.note("wasVisible=\(wasVisible)")
+    probe.note("prewarmed=\(didPrewarm)")
 
     // The display link ticks on the first presented frame, which is the closest signal
     // to "the user can see the popup" that AppKit offers.
+    stepStartedAt = Perf.now()
     PerfFrameMonitor.shared.onFirstFrame = { PopupOpenProbe.shared.framePresented() }
     if let contentView {
       PerfFrameMonitor.shared.start(on: contentView)
     }
+    probe.step("popup.open.displayLinkMonitor", since: stepStartedAt)
 
     if popupPosition == .statusItem {
       DispatchQueue.main.async {
         self.statusBarButton?.isHighlighted = true
       }
     }
+  }
+
+  /// Builds, lays out and presents the popup's view tree while the panel is still hidden.
+  ///
+  /// The panel and its hosting view are created once at launch, but SwiftUI builds and lays out
+  /// the list tree only when the window is first displayed, AppKit presents it for the first time
+  /// only then, and the search field's first focus and the window's first active appearance also
+  /// happen on that first display. The trace of the first open is 41 % allocations — creation,
+  /// not rendering — and it costs 238–334 ms against 77–105 ms for a repeat. Doing all of it here
+  /// moves it off the open path, where nobody waits for it.
+  ///
+  /// Everything happens offscreen: the panel is ordered front at a point outside every screen and
+  /// ordered out again, because laying out a hidden window does *not* make AppKit present it.
+  /// The app itself is never activated. The panel is made key, because that is where a large part
+  /// of the remaining cost lives (measured: the penalty of a first open over a repeat 166 → 59 ms),
+  /// but not when VoiceOver is running — there a focus change is something the user hears (see
+  /// `prewarmMakesKey`).
+  func prewarm() {
+    guard !didPrewarm, !hasEverBeenPresented, !isPresented, !isVisible else { return }
+
+    let startedAt = Perf.now()
+    let size = contentSize(for: prewarmHeight)
+
+    // CoreAnimation's first display link of the process is created here rather than inside the
+    // first open, where it would be charged to the user (and to the probe).
+    let linkStartedAt = Perf.now()
+    if let contentView {
+      PerfFrameMonitor.shared.warmUp(on: contentView)
+    }
+    let linkMs = (Perf.now() - linkStartedAt) * 1000
+
+    var before = PerfCounters.shared.snapshot()
+    let layoutStartedAt = Perf.now()
+    setContentSize(size)
+    contentView?.layoutSubtreeIfNeeded()
+    let layoutMs = (Perf.now() - layoutStartedAt) * 1000
+    let layoutBuilt = PerfCounters.delta(between: before, and: PerfCounters.shared.snapshot())
+
+    if Perf.isEnabled {
+      before = PerfCounters.shared.snapshot()
+    }
+    let presentedAt = Perf.now()
+    let savedOrigin = frame.origin
+    isPrewarming = true
+    setFrameOrigin(offscreenOrigin())
+    orderFrontRegardless()
+    contentView?.layoutSubtreeIfNeeded()
+    contentView?.displayIfNeeded()
+
+    let keyWarmed = prewarmMakesKey
+    if keyWarmed {
+      makeKey()
+      // The focus and appearance work is driven by the key-window notifications and needs a few
+      // runloop turns to run. It happens here so that the first open only pays a warm `makeKey`.
+      // 0.2 s was measured as the shortest turn that lands the work here every time: 0.05 s
+      // leaves 47 ms behind, 0.1 s is inconsistent (81–126 ms).
+      RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    // A runloop turn can deliver a click on the status item; leave a popup that was opened
+    // during it alone instead of ordering it out from under the user.
+    let openedDuringWarmUp = isPresented
+    if !openedDuringWarmUp {
+      orderOut(nil)
+      setFrameOrigin(savedOrigin)
+    }
+    isPrewarming = false
+    let presentMs = (Perf.now() - presentedAt) * 1000
+    didPrewarm = true
+
+    guard Perf.isEnabled else { return }
+    let presentBuilt = PerfCounters.delta(between: before, and: PerfCounters.shared.snapshot())
+
+    Perf.event(
+      "popup.prewarm",
+      zone: .popup,
+      "ms=\(Perf.milliseconds(Perf.now() - startedAt)) layout=\(Perf.milliseconds(layoutMs / 1000)) "
+        + "present=\(Perf.milliseconds(presentMs / 1000)) "
+        + "displayLink=\(Perf.milliseconds(linkMs / 1000)) "
+        + "size=\(String(format: "%.0fx%.0f", size.width, size.height)) "
+        + "keyWarmed=\(keyWarmed) openedDuringWarmUp=\(openedDuringWarmUp) "
+        + "layoutBuilt={\(PerfCounters.describe(layoutBuilt, limit: 160))} "
+        + "presentBuilt={\(PerfCounters.describe(presentBuilt, limit: 240))}"
+    )
+  }
+
+#if DEBUG
+  /// Test hook: pretends the panel was shown, so `prewarm()` must become a no-op.
+  func markPresentedForTesting() {
+    hasEverBeenPresented = true
+  }
+#endif
+
+  /// The list height `prewarm()` lays out at: the height the popup has measured for itself, or,
+  /// before it measured anything, the tallest the popup can ever be opened.
+  var prewarmHeight: CGFloat {
+    let height = AppState.shared.popup.height
+    return height > 0 ? height : Defaults[.windowSize].height
+  }
+
+  /// Keeps the panel outside the screens while `prewarm()` runs.
+  ///
+  /// AppKit pulls an offscreen window back onto a screen with `constrainFrameRect(_:to:)`, which
+  /// would turn the warm-up into a popup flashing in a screen corner at launch. Outside the
+  /// warm-up the normal constraint applies, so a user cannot park the popup somewhere unreachable.
+  override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+    isPrewarming ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+  }
+
+  /// A point outside every screen, so that ordering the panel front cannot be seen.
+  /// The app's own activation state is never touched: the panel is non-activating.
+  private func offscreenOrigin() -> NSPoint {
+    let screens = NSScreen.screens
+    let maxX = screens.map(\.frame.maxX).max() ?? 0
+    let minY = screens.map(\.frame.minY).min() ?? 0
+    return NSPoint(x: maxX + 10_000, y: minY)
+  }
+
+  /// The size the panel is opened with for a requested list height. `prewarm()` uses it too so
+  /// that both lay the tree out at the same size.
+  func contentSize(for height: CGFloat) -> NSSize {
+    let size = Defaults[.windowSize]
+    let minimumHeight: CGFloat = AppState.shared.popup.minimumHeight
+    return NSSize(
+      width: min(frame.width, size.width),
+      height: max(min(height, size.height), minimumHeight)
+    )
   }
 
   func verticallyResize(to newHeight: CGFloat) {

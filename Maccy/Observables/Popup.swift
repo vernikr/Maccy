@@ -86,6 +86,13 @@ class Popup {
     KeyboardShortcuts.enable(.popup)
   }
 
+  /// Builds the popup's view tree while it is still hidden, so that the first open does not pay
+  /// for it. Safe to call at any time: `FloatingPanel` runs it once and ignores every later call,
+  /// as well as any call after the panel was shown.
+  func prewarm() {
+    AppState.shared.appDelegate?.panel.prewarm()
+  }
+
   func close() {
     AppState.shared.appDelegate?.panel.close()  // close() calls reset
   }

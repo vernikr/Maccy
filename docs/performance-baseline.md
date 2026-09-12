@@ -110,6 +110,62 @@ store was still loading. So the penalty is not specific to the click path, but `
 change the absolute number (rule 11 in `AGENTS.md`) — cold and warm must be compared within one
 setting.
 
+One correction to the breakdown above: **62–70 ms of that first-frame wait was the probe measuring
+itself.** `PerfFrameMonitor.start(on:)` creates the process's first display link, and CoreAnimation
+answers that by enumerating every display mode of the screen — 69 of the 191 ms of the first-open
+stall in the cold-open trace sit under `-[CADisplay _initWithDisplay:] → CA::Display::Display::update()
+→ SLSIsDisplayModeVRR`, building vectors of `CGSDisplayMode`/`SLSLinkDescription`. It is a one-time
+cost per process, it only exists when instrumentation is on, and it landed exactly inside the first
+open. `PerfFrameMonitor.warmUp(on:)` now creates and discards a display link during the warm-up, and
+`popup.open.displayLinkMonitor` reports what is left of it per open (0.08–0.21 ms).
+
+### Cold start — after the popup warm-up
+
+`FloatingPanel.prewarm()` (called from `History.load()` once the items are in) builds, lays out and
+presents the popup's view tree while the panel is still hidden, so that the first open does not pay
+for it: the panel is sized as an open would size it, laid out, ordered front **outside every screen**
+(the `constrainFrameRect(_:to:)` override keeps AppKit from pulling it back onto a screen) and made
+key for one runloop turn before being ordered out. Nothing is ever visible and the app is never
+activated. Skipped in an XCTest host and when VoiceOver is on (a focus change is audible there).
+
+Measured with the *same* scenario for every build — fresh instance, 200-item copy of the store, the
+popup triggered by reopening the app (`open -a`, i.e. `applicationShouldHandleReopen` → `panel.toggle`),
+which lands 4/4 where the coordinate click on the status item landed about half the time. Four runs
+per build, `popup.open.firstFrame`:
+
+| build | cold (ms) | warm (ms) | cold − warm |
+| --- | --- | --- | --- |
+| HEAD before this change (8 runs, two sets) | 252.4 (238.6 – 334.0) | 78 – 87 | **166 ms** |
+| warm-up of layout + presentation only | 158.9 (111.5 – 168.0) | 74.5 | 84 ms |
+| + display-link warm-up | 127.4 (116.3 – 138.1) | 80.7 | 47 ms |
+| + making the panel key offscreen, final | **128.9 / 99.0** (124.8 – 136.0) | 70.2 | **59 ms** |
+
+The last two rows are the same code path measured twice; 0.2 s is the shortest runloop turn that
+reliably lands the key/appearance work in the warm-up (0.05 s leaves 47 ms behind, 0.1 s is
+inconsistent at 81–126 ms). Where the work goes, per run:
+
+| phase | cost at launch | what it moves off the first open |
+| --- | --- | --- |
+| display-link warm-up | 62 – 71 ms | the first `CADisplay` of the process |
+| layout (`setContentSize` + `layoutSubtreeIfNeeded`) | 94 – 106 ms | building and laying out ~30 rows (`colorImage.from[calls=30]`) |
+| presentation + key + runloop turn | 293 – 350 ms (200 of it the turn) | first ordering, first appearance, search field's first focus |
+
+First open: **238.6 – 334.0 ms → 124.8 – 136.0 ms** (median 252.4 → 128.9), the cold-vs-warm penalty
+166 → 59 ms. `popup.open.orderFrontRegardless` drops from 9.6 – 15.7 ms to 0.7 – 4.1 ms and
+`popup.open.setContentSize` from 2.7 – 6.7 ms to 0.1 – 0.4 ms; `makeKey` stays cold (13 – 25 ms) and
+the remaining ~59 ms is the part that can only happen on a window that is really on screen.
+
+Cost: the warm-up itself is 450 – 515 ms of main-thread work about a second after launch, of which
+200 ms is the deliberate runloop turn. That is a deliberate trade — nobody is waiting for the popup
+then, and a click that does arrive during the turn is respected (the panel is left open instead of
+being ordered out from under the user).
+
+Covered by `MaccyTests/FloatingPanelPrewarmTests`: the panel is sized like an open would size it, the
+content is laid out, the window is ordered front **outside every screen** and never left visible, the
+warm-up happens once, and it is skipped once the panel has been shown. The offscreen assertion is
+what caught `constrainFrameRect` pulling the offscreen window back onto a screen — i.e. a popup
+flashing in a corner at launch.
+
 ### After the thumbnail fix — rasterization off the main thread
 
 `NSImage.rasterized(to:scale:)` draws the resized image into a bitmap right away (at the backing

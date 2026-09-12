@@ -26,6 +26,18 @@ final class PerfFrameMonitor {
 
   var isRunning: Bool { link != nil }
 
+  /// Creates and discards a display link once, before the popup is ever opened.
+  ///
+  /// CoreAnimation creates a process-wide `CADisplay` on the first display link of a display, and
+  /// that call enumerates every display mode of the screen: the cold-open trace shows 69 ms of a
+  /// 197 ms first-open stall inside `-[CADisplay _initWithDisplay:] → SLSIsDisplayModeVRR`. Left
+  /// alone it lands inside the first `start(on:)`, i.e. inside the first open, and inflates the
+  /// very number the probe reports. Nothing to do for real users: instrumentation is off there.
+  func warmUp(on view: NSView) {
+    guard Perf.isEnabled, link == nil else { return }
+    view.displayLink(target: self, selector: #selector(tick(_:))).invalidate()
+  }
+
   /// Starts sampling on the given view, e.g. the hosting view of the popup.
   func start(on view: NSView) {
     guard Perf.isEnabled, link == nil else { return }
