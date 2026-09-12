@@ -68,7 +68,7 @@ echo "  archive will be signed with the private key for $PUBLIC_KEY"
 # MARK: - Build and sign
 
 step "Building"
-run mkdir -p "$OUT_DIR"
+mkdir -p "$OUT_DIR"
 run rm -rf "$APP"
 if [ "$DRY_RUN" = 1 ]; then
   echo "  [dry run] xcodebuild build -configuration Release MARKETING_VERSION=$VERSION …"
@@ -152,12 +152,19 @@ cat <<EOF
   git commit -m "chore(release): publish $VERSION"
   git push origin master
 
-Then an installed build whose feed is this repository's appcast.xml finds it on its next automatic
-check (Sparkle schedules that at launch, once a day by default, or immediately when the last check
-is older than SUScheduledCheckInterval). To install without waiting for the user to agree:
+Then an installed build whose feed is this repository's appcast.xml finds the release on its own:
+Sparkle checks at launch, and once the last check is older than a day it checks immediately. Two
+preferences decide how that goes, and they live in the *installed* app's sandbox container — aiming
+`defaults` at the bundle id from a non-installed build would write somewhere else entirely
+(AGENTS.md rule 10):
 
-  defaults write org.p0deje.Maccy SUAutomaticallyUpdate -bool true   # Sparkle downloads silently
-  defaults read  org.p0deje.Maccy SULastCheckTime                    # make it overdue to check now
+  P="$HOME/Library/Containers/org.p0deje.Maccy/Data/Library/Preferences"
+  defaults write "$P/org.p0deje.Maccy" SUAutomaticallyUpdate -bool true   # install on quit, no alert
+  defaults delete "$P/org.p0deje.Maccy" SULastCheckTime                   # forget the last check
 
-The update is applied when the app quits; the new version is what starts next time.
+`scripts/install.sh` seeds both, so an installed build keeps itself current from here on.
+
+To watch an update land without waiting for the daily schedule, delete SULastCheckTime (above) and
+relaunch the app: the check, the download, the EdDSA verification and the install-on-quit all show up
+in `log show --predicate 'subsystem CONTAINS "sparkle"'`. The new version is what starts next time.
 EOF
