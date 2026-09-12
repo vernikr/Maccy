@@ -10,6 +10,13 @@
 - Сборка: `bash scripts/perf.sh build` — Debug в `.build/`, без подписи; перед сборкой сам запускает
   preflight (валидатор проекта + проверка заглушек). Перф-инструментация: `docs/performance-profiling.md`.
 - Проверка ссылок в проекте: `python3 scripts/validate-pbxproj.py` (или `bash scripts/perf.sh validate`).
+- Конфигурации: Debug = `-Onone` + условие `DEBUG`; Release = `-O` + `wholemodule`, условия `DEBUG` нет.
+  Release-сборка: тот же `xcodebuild` с `-configuration Release`.
+- Прогон на копии реальной истории (не трогая данные пользователя):
+  `open -n -g -a …/Debug/Maccy.app --env MACCY_PERF=1 --env MACCY_STORAGE_PATH=/tmp/copy.sqlite
+  --args enable-testing` (env из `xcodebuild` в тест-хост не пробрасывается, а `open --env` — пробрасывает).
+  В Release `#if DEBUG` вырезан, поэтому этот способ там не работает. Живой сценарий и медианы —
+  `docs/performance-baseline.md`.
 
 ## Грабли → правило
 
@@ -39,6 +46,17 @@
    `~/Library/Application Support/Maccy/Storage.sqlite`. Правило: перед запуском/тестами —
    `pgrep -lx Maccy`; тесты и сборки запускать через схему, где test plan передаёт `enable-testing`
    (in-memory хранилище и отдельный defaults-suite).
+10. **`defaults` по bundle id целится в контейнер установленного сэндбокс-приложения**: `defaults
+    read/write/delete org.p0deje.Maccy` меняет **настоящие настройки пользователя**
+    (`~/Library/Containers/org.p0deje.Maccy/Data/Library/Preferences/…`), а не домен
+    несэндбоксной сборки из `.build`. Правило: для сборок работать по явному пути
+    (`defaults write "$HOME/Library/Preferences/org.p0deje.Maccy" key …`), а перед любым `defaults`
+    по bundle id — экспорт домена (`defaults export org.p0deje.Maccy /tmp/backup.plist`) и возврат
+    через `defaults import`.
+11. **Настройки меняют замер.** `popupPosition` (по умолчанию `.cursor`, а не `.statusItem`) сдвигает
+    попап к курсору и делает замеры по зонам несравнимыми. Правило: перед сравнением прогонов
+    сверять `position=` в `popup.open.firstFrame`, а различающиеся настройки приводить к одному
+    значению (и возвращать назад после прогона).
 
 ## Порядок работы
 

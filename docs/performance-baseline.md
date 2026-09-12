@@ -114,6 +114,53 @@ SwiftUI content animation finish ~30 ms apart (they are driven by two independen
 4. **Preview animation overruns its 250 ms budget** by 18–29 % and drops 8–15 frames per second
    while it runs.
 
+## Release (-O) vs Debug (-Onone)
+
+The same scenario was replayed on a Release build to see which parts of the numbers above are
+`-Onone` overhead and which are structural. Release differs from Debug in three ways
+(`SWIFT_OPTIMIZATION_LEVEL = -O`, `SWIFT_COMPILATION_MODE = wholemodule`, no `DEBUG` condition),
+so the comparison is "optimized build vs not", not "optimization flag alone".
+
+One setting had to be normalized first: the Debug run had `popupPosition = statusItem` (the
+"Menu icon" note), while the Release run picked up the code default `.cursor` from the unsandboxed
+build's own domain — a different popup placement, and therefore a different hover starting point.
+The Release run was forced to `statusItem` to match.
+
+| metric | Debug `-Onone` | Release `-O` |
+| --- | --- | --- |
+| popup first frame, status item click | 163.2 ms (n=5: 101.9–184.5) | 166.2 ms (n=3: 107.1–238.1) |
+| AppKit steps inside `open()` | 10.4 – 12.6 ms | 5.3 – 58 ms (noisier) |
+| `hover.applySelection` | p50 0.29 ms (n=105) | p50 0.20 ms (n=53) |
+| cursor → hover callback, mean per second | p50 52.7 ms, max 486 ms | 2.3 – 6.0 ms |
+| worst single cursor → callback | 660.7 ms | 38.7 ms |
+| worst frame gap while hovering | 190 – 1025 ms | 57 – 548 ms |
+| `fps` while hovering | 5.7 – 41 (idle 60) | 25 – 57 (idle 60) |
+| dropped frames per second while hovering | up to 86 | up to 34 |
+| row bodies rebuilt per hover event | ~57 | ~30 |
+| `decorator.accessibilityLabel` per call | 0.152 ms | 0.116 ms |
+| `decorator.hasImage` per call | 0.048 ms | 0.028 ms |
+| `colorImage.from` per call | 0.043 ms | 0.023 ms |
+| `decorator.application.lookup` per call | 0.035 ms | 0.037 ms |
+| preview animation | 323.8 ms median (n=6: 276.5–345.5) | 413.7 ms median (n=6: 331.5–499.9) |
+| frames during the preview animation | fps 45–52, 4–6 hitches, 8–15 dropped, worst 68–114 ms | fps 42.5–43.8, 3–6 hitches, 10–20 dropped, worst 89–213 ms |
+
+What that splits into:
+
+* **The popup-open latency is structural.** The median does not move (163 → 166 ms), and the
+  AppKit calls inside `open()` stay in the same ballpark — the cost is the first presented frame
+  either way. Optimizing the open means making the first layout/paint of the list cheaper, not
+  making Swift code faster.
+* **The hover lag is mostly `-Onone` overhead, but not entirely.** Input delivery stops queueing
+  (53 ms → 2.5 ms mean, 660 ms → 39 ms worst), which is the "slight lag behind the cursor"
+  disappearing. Yet `fps` still falls to 25–40 with 20–34 dropped frames per second, because each
+  hover still rebuilds ~30 rows whose getters re-scan `contents`, rebuild an accessibility label
+  and rasterize a colour swatch. A Release-profile verification therefore validates the Debug
+  measurements as a *ranking*, not as absolute numbers.
+* **The preview overrun is structural.** `-O` did not improve it; the Release samples are ~28 %
+  *higher*. Treat the direction as unresolved (4 of the 6 Release samples came from the sidebar
+  button rather than `autoOpen`, and the preview content depends on which row was selected), but
+  the conclusion that this is not `-Onone` overhead holds.
+
 ## Caveats
 
 * The instrumentation is on, which adds one lock + dictionary update per counter (~1000 s⁻¹ in the
@@ -121,7 +168,8 @@ SwiftUI content animation finish ~30 ms apart (they are driven by two independen
 * The single worst frame gaps (≥0.5 s, e.g. `worst=1024.59ms`) are ~10× the rest and always land in
   the second in which the 1 KB `frame.stats` report is written, so they are an upper bound. The
   reproducible part is `fps` 14–40 and 20–86 dropped frames per second.
-* Debug build (`-Onone`): release will be faster in absolute terms, but the *ratios* — 57 rows per
-  hover, 88 % of the open latency outside AppKit — are structural.
+* Debug build (`-Onone`): release is faster in absolute terms (see the comparison above), but the
+  *structure* — whole-list re-renders per hover, 88 % of the open latency outside AppKit — is the
+  same.
 * Zone 1 was measured with the popup opening at its final size; a short history would exercise the
   animated `verticallyResize` path instead, which this baseline does not cover.
