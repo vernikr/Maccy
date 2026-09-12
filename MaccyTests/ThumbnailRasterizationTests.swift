@@ -148,18 +148,23 @@ final class ThumbnailRasterizationTests: XCTestCase {
                    "the aspect ratio must survive the resize")
   }
 
+  /// An item without an image must not even schedule the work.
+  ///
+  /// The assertion is on the decorator rather than on a call counter. `rasterizeImage` is a
+  /// process-wide seam, and leftovers from other test classes — anything that goes through
+  /// `sizeImages()`, or a row that was still being built — can land inside this test's window: on CI
+  /// the counter version failed with 4 calls for an item that has nothing to draw at all. The task
+  /// property is the contract the row actually depends on, and nothing else touches it.
   func testItemWithoutAnImageNeverRasterizes() async throws {
-    var calls = 0
-    HistoryItemDecorator.rasterizeImage = { image, size, scale in
-      calls += 1
-      return image.rasterized(to: size, scale: scale)
-    }
-
     let decorator = makeDecorator(image: nil)
+
     decorator.ensureThumbnailImage()
     try await Task.sleep(nanoseconds: 100_000_000)
 
-    XCTAssertEqual(calls, 0)
+    XCTAssertNil(
+      decorator.thumbnailImageGenerationTask,
+      "an item without an image must not schedule a thumbnail at all"
+    )
     XCTAssertNil(decorator.thumbnailImage)
   }
 
