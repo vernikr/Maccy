@@ -5,9 +5,8 @@
 
 # [Maccy](https://maccy.app)
 
-[![Downloads](https://img.shields.io/github/downloads/p0deje/Maccy/total.svg)](https://github.com/p0deje/Maccy/releases/latest)
-[![Build Status](https://img.shields.io/bitrise/716921b669780314/master?token=3pMiCb5dpFzlO-7jTYtO3Q)](https://app.bitrise.io/app/716921b669780314)
-[![Tests](https://github.com/vernikr/Maccy/actions/workflows/tests.yml/badge.svg)](https://github.com/vernikr/Maccy/actions/workflows/tests.yml)
+[![Tests](https://github.com/vernikr/Maccy/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/vernikr/Maccy/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/vernikr/Maccy?label=release)](https://github.com/vernikr/Maccy/releases/latest)
 
 > ### Same Maccy, without the slowness
 >
@@ -115,11 +114,17 @@ the wrong diagnoses along the way.
 
 ## Install
 
-Download the latest version from the [releases](https://github.com/p0deje/Maccy/releases/latest) page, or use [Homebrew](https://brew.sh/):
+*Stock Maccy* comes from the [upstream releases](https://github.com/p0deje/Maccy/releases/latest) page or
+[Homebrew](https://brew.sh/):
 
 ```sh
 brew install maccy
 ```
+
+*This fork* is not in Homebrew and has no download: build it and run `scripts/install.sh`, which
+replaces the Maccy you already have and keeps its history — see
+[Putting it on your Mac](#putting-it-on-your-mac) above. From then on it updates itself from this
+repository's own feed.
 
 ## Usage
 
