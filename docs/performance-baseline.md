@@ -58,6 +58,55 @@ No `popup.verticalResize` fired in any of these runs: with 200 items `popup.heig
 the 800 pt maximum, so the popup opens at its final size on the first frame. The two-phase
 "popup grows after it appears" path only applies when the history is shorter than `windowSize`.
 
+### Cold start — the first open after launch
+
+This was never measured separate from the table above, and the open path has **not** been optimized:
+nothing in the hover or preview work touches it. Three fresh instances of the same build, each doing
+one first open and one later open in the same process (store already loaded, `position=Menu icon`,
+200 items, status-item click):
+
+| open | samples (ms) | median |
+| --- | --- | --- |
+| first after launch | 299.3, 228.7, 209.4 | **228.7** |
+| later in the same process | 82.7, 82.2, 82.3 | **82.3** |
+
+The first appearance costs **+127…+217 ms** (2.5–3.6×) and the extra time is in both halves:
+
+| step | cold (ms) | warm (ms) |
+| --- | --- | --- |
+| `setContentSize` | 3.6 – 3.8 | 1.6 – 1.7 |
+| `setFrameOrigin` | 0.18 – 0.20 | 0.07 – 0.08 |
+| `orderFrontRegardless` | 11.5 – 11.6 | 0.90 – 0.96 |
+| `makeKey` | 21.4 – 33.8 | 13.0 – 14.1 |
+| `becameKey` | 34.4 – 35.5 | 4.8 – 16.0 |
+| **AppKit steps, total** | **71 – 85** | **20 – 33** |
+| the rest = wait for the first presented frame | 138 – 144 | ~50 – 62 |
+
+Why the first frame is that expensive: every row that comes on screen for the first time runs
+`HistoryItemView.onAppear` → `ensureThumbnailImage()` → `image.resized(to:)`, and `NSImage.resized`
+returns a **lazily drawn** image — the rasterization happens on the first draw, inside the popup's
+first paint, on the main thread. A second visit to the same rows pays nothing (the resized image is
+cached on the decorator and the bitmap behind it is cached by `NSImage`), which is exactly the
+cold/warm gap above. The same mechanism shows up mid-sweep when rows are scrolled into view for the
+first time: in the Instruments trace `NSImage.resized` accounts for **131 ms of main-thread CPU in a
+single 0.33 s window** (14:33:57.71–58.04) — the cluster of four stalls (125 / 98 / 95 / 111 ms) in
+the second that reported fps 27.4 with 14 hitches — and `resample_horizontal_avx2` appears as self
+time in that same stall. The popup-open stall of the same trace (172 ms, ~10 s after launch,
+`wasVisible=false`) is **41 % allocation**, 17 % SwiftUI internals, 13 % ARC: first-time creation
+work, not rendering.
+
+Two shorter runs that pressed `⌘⇧C` instead of clicking the icon, with `position=Cursor`, gave
+182.4 / 186.3 / 213.6 ms cold, and 231.8 ms when the open was requested 0.8 s after launch while the
+store was still loading. So the penalty is not specific to the click path, but `popupPosition` does
+change the absolute number (rule 11 in `AGENTS.md`) — cold and warm must be compared within one
+setting.
+
+Side observation from the same runs: in every fresh instance the preview panel toggles itself open
+~1.9 s after `history.load`, with the popup still closed
+(`preview.toggle.begin trigger=autoOpen state=closed` → `preview.toggle.end state=open`), because
+loading the history sets the lead item and `NavigationManager` schedules `startAutoOpen()`. Whether
+that panel is actually visible on screen was not verified in this pass.
+
 ## Zone 2 — hover selection
 
 | metric | value |
