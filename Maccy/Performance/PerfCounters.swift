@@ -71,6 +71,32 @@ final class PerfCounters: @unchecked Sendable {
     entries[key] = entry
   }
 
+  /// Returns the collected counters without clearing them, e.g. to diff two phases.
+  func snapshot() -> [String: Entry] {
+    lock.lock()
+    defer { lock.unlock() }
+    return entries
+  }
+
+  /// Subtracts `before` from `after`, so a phase can be reported by its own delta.
+  /// Counts, sums and totals are exact; `maximumMilliseconds` is kept as an upper bound
+  /// of the whole window, because a maximum cannot be subtracted.
+  static func delta(between before: [String: Entry], and after: [String: Entry]) -> [String: Entry] {
+    var result = [String: Entry]()
+    for (key, entry) in after {
+      var value = entry
+      if let previous = before[key] {
+        value.calls -= previous.calls
+        value.sum -= previous.sum
+        value.totalMilliseconds -= previous.totalMilliseconds
+      }
+      if value.calls != 0 || value.totalMilliseconds > 0 {
+        result[key] = value
+      }
+    }
+    return result
+  }
+
   /// Returns the collected counters sorted by key and clears them.
   func flush() -> [String: Entry] {
     lock.lock()

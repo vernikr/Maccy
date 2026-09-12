@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA1E1000000000000000B002 /* PerfBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000B001 /* PerfBaselineTests.swift */; };
 		AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */; };
 		AA1E1000000000000000A003 /* Perf.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A002 /* Perf.swift */; };
 		AA1E1000000000000000A005 /* PerfCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A004 /* PerfCounters.swift */; };
@@ -192,6 +193,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AA1E1000000000000000B001 /* PerfBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfBaselineTests.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfInstrumentationTests.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A002 /* Perf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Perf.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A004 /* PerfCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfCounters.swift; sourceTree = "<group>"; };
@@ -770,6 +772,7 @@
 				DAE2850123225BD90080E394 /* ColorImageTests.swift */,
 				DA360DB21E3DF137005C6F6B /* HistoryTests.swift */,
 				AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */,
+				AA1E1000000000000000B001 /* PerfBaselineTests.swift */,
 				DA1EDE422045B35300479723 /* HistoryDecoratorTests.swift */,
 				DAFE2DE8268A9B1B00990986 /* HistoryItemTests.swift */,
 				DA384E85232746D800603999 /* SearchTests.swift */,
@@ -1136,6 +1139,7 @@
 				FFFC00000000000000000003 /* UnsafeForTitleLayoutTests.swift in Sources */,
 				DA360DB31E3DF137005C6F6B /* HistoryTests.swift in Sources */,
 				AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */,
+				AA1E1000000000000000B002 /* PerfBaselineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
