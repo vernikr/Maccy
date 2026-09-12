@@ -8,6 +8,33 @@ Upstream Maccy keeps its own notes in [its releases](https://github.com/p0deje/M
 file covers what the fork changes on top of the upstream version it is based on. Measurements behind
 the numbers are in [docs/performance-baseline.md](docs/performance-baseline.md).
 
+## [2.7.4] — 2026-09-12
+
+### Added
+
+* **The installer arms self-updates.** Installing the fork used to leave the update loop half
+  working: Sparkle checked, but would only ever show a dialog, and the two preferences that decide
+  this had to be written by hand. `scripts/install.sh` now turns on silent updates in the app's own
+  container and forgets the last check, so the next launch looks for a release immediately and the
+  update installs when you quit. `--no-auto-update` opts out.
+
+### Fixed
+
+* **A release can be rehearsed with `--dry-run`.** `local-release.sh` created its output directory
+  through a helper that a dry run skips, so the dry run failed at the first step — the one mode you
+  want to trust before publishing.
+
+### Verified
+
+* **The update loop closes.** A locally signed 2.7.2 installed in `/Applications` found 2.7.3 in
+  this repository's appcast on its own, downloaded it, had the EdDSA signature accepted
+  (`OK: EdDSA signature is correct` in the Sparkle log) and installed it on quit — no rebuild, no
+  manual copy. The updated app came out with the same signing certificate, the same designated
+  requirement, the same sandbox and its 200 history items intact; the Accessibility grant macOS had
+  recorded was untouched (`csreq` byte-identical, `last_modified` unchanged) and the updated app
+  still satisfies it. This release exists partly to re-run that end to end on the app 2.7.3 left
+  behind, rather than only on a build installed by hand.
+
 ## [2.7.3] — 2026-09-12
 
 ### Added
