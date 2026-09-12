@@ -145,6 +145,29 @@ close. Counters accumulate in the last partial second otherwise.
    `fps/hitches/worst`, and the counter set of the worst second.
 4. Only then change code, and re-measure with the same scenario.
 
+The numbers to beat, and the exact live-GUI procedure behind them, are in
+[performance-baseline.md](performance-baseline.md).
+
+### Running the real thing without touching the user's history
+
+The Debug build is not sandboxed, so it keeps its store in `~/Library/Application Support/Maccy/`
+and never collides with an installed `/Applications/Maccy.app`. To profile against realistic data
+anyway, copy a store and point the app at it:
+
+```bash
+sqlite3 "file:$HOME/Library/Containers/org.p0deje.Maccy/Data/Library/Application\
+ Support/Maccy/Storage.sqlite?mode=ro" ".backup /tmp/maccy-baseline/Storage.sqlite"
+
+open -n -g -a .build/Build/Products/Debug/Maccy.app \
+  --env MACCY_PERF=1 --env MACCY_PERF_VERBOSE=1 \
+  --env MACCY_STORAGE_PATH=/tmp/maccy-baseline/Storage.sqlite --args enable-testing
+```
+
+`MACCY_STORAGE_PATH` is only honoured together with `enable-testing` (see `Storage.init`), which
+also moves preferences into a throwaway suite and turns off update checks. Drive the popup with
+`⌘⇧C` or by clicking the status item, and move the real cursor across the rows — AppleScript and
+AX presses do not produce `mouseMoved` events, so hover has to come from a physical pointer.
+
 ## Caveats
 
 - `popup.open.firstFrame` is a lower bound: it is the first ticked frame, not the moment the

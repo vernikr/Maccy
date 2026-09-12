@@ -22,7 +22,14 @@ class Storage {
 
     #if DEBUG
     if AppDelegate.isTesting {
-      config = ModelConfiguration(isStoredInMemoryOnly: true)
+      // Tests use memory by default. A benchmark or QA run can point the app at a
+      // throwaway store instead, so it never touches the real history:
+      //   MACCY_STORAGE_PATH=/tmp/copy.sqlite Maccy.app/Contents/MacOS/Maccy enable-testing
+      if let path = ProcessInfo.processInfo.environment["MACCY_STORAGE_PATH"] {
+        config = ModelConfiguration(url: URL(fileURLWithPath: path))
+      } else {
+        config = ModelConfiguration(isStoredInMemoryOnly: true)
+      }
     }
     #endif
 
