@@ -8,6 +8,31 @@ Upstream Maccy keeps its own notes in [its releases](https://github.com/p0deje/M
 file covers what the fork changes on top of the upstream version it is based on. Measurements behind
 the numbers are in [docs/performance-baseline.md](docs/performance-baseline.md).
 
+## [2.7.3] — 2026-09-12
+
+### Added
+
+* **Updates check themselves.** Sparkle used to be started only from the settings pane, so a build
+  nobody opened that pane in was never told about a new version. It is now started at launch, as in
+  any other Sparkle app, and `SUEnableAutomaticChecks` is set in
+  `Info.plist` so Sparkle schedules its check silently instead of asking permission on second
+  launch. Test hosts and instrumented perf runs skip it: an update installing in the middle of a
+  measurement would be worse than noise.
+* **`scripts/local-release.sh`** — a release a locally installed build updates itself from: builds
+  Release, signs with the local certificate, signs the zip with this fork's Sparkle key (EdDSA is
+  what an update is accepted on), publishes the archive as a GitHub release and adds the appcast
+  entry. Companion pieces: `scripts/create-signing-identity.sh` (a stable identity, so an update
+  keeps the permissions macOS granted) and `scripts/install.sh` (installs a build in place of the app
+  you already have, keeping your history).
+
+### Fixed
+
+* **Sparkle's helpers are no longer sandboxed.** `codesign --deep` stamped the app's sandbox
+  entitlement on `Downloader.xpc`, `Installer.xpc`, `Updater.app` and `Autoupdate` — the processes
+  that reach the network and replace the bundle — so an update check would fail with nothing in the
+  UI to explain it. They are signed on their own without entitlements now, exactly like the upstream
+  build, and the installer asserts it.
+
 ## [2.7.2] — 2026-09-12
 
 Based on upstream Maccy 2.7.1. No features were added or removed: same settings, same shortcuts, same

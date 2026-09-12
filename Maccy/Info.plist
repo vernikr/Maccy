@@ -28,6 +28,12 @@
 	<string>Copyright © Alexey Rodionov</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Set here rather than left to Sparkle's first-run prompt: the updater is started at launch
+	     (AppDelegate), and a default in the plist means Sparkle schedules its check silently
+	     instead of asking the user for permission on second launch. Can be turned off in
+	     Settings → General. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 	<key>SUEnableDownloaderService</key>
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>

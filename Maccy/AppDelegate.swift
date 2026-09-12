@@ -120,6 +120,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     migrateUserDefaults()
     disableUnusedGlobalHotkeys()
 
+    // Sparkle has to be started here, not from the settings pane, for automatic update checks to
+    // happen at all. Skipped for the test host and for instrumented perf runs: an update
+    // downloading in the middle of a measurement would be noise at best, and a new version
+    // installing during one would be worse.
+    if !Self.isTestHost, !Perf.isEnabled {
+      SoftwareUpdater.start()
+    }
+
     panel = FloatingPanel(
       contentRect: NSRect(origin: .zero, size: Defaults[.windowSize]),
       identifier: Bundle.main.bundleIdentifier ?? "org.p0deje.Maccy",

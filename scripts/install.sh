@@ -86,59 +86,14 @@ echo "  data  $CONTAINER"
 
 step "Signing"
 
-# The entitlements file is written for Xcode, so its $(PRODUCT_BUNDLE_IDENTIFIER) has to be
-# resolved here. The values are the ones upstream ships; keeping them identical is what lets the
-# existing sandbox container be reused.
-ENTITLEMENTS=$(mktemp -t maccy-entitlements)
-sed "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$BUNDLE_ID/g" Maccy/Maccy.entitlements > "$ENTITLEMENTS"
-
-IDENTITY="${CODESIGN_IDENTITY:-}"
-if [ -z "$IDENTITY" ]; then
-  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-    | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1 || true)
+if [ "$DRY_RUN" = 1 ]; then
+  echo "  [dry run] scripts/sign-app.sh \"$BUILT_APP\""
+else
+  # All of the signature lives in one place (scripts/sign-app.sh): which identity, the sandbox
+  # entitlement on the app, and Sparkle's helpers deliberately left unsandboxed so that the update
+  # check can still reach the network.
+  bash "$ROOT_DIR/scripts/sign-app.sh" "$BUILT_APP"
 fi
-if [ -z "$IDENTITY" ]; then
-  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-    | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1 || true)
-fi
-if [ -z "$IDENTITY" ]; then
-  # A certificate this machine made for itself: same designated requirement on every build, so the
-  # permissions macOS attaches to the app survive rebuilds. See scripts/create-signing-identity.sh.
-  IDENTITY=$(security find-identity -p codesigning 2>/dev/null \
-    | sed -n 's/.*"\(Maccy Local Signing\)".*/\1/p' | head -1 || true)
-  if [ -n "$IDENTITY" ]; then
-    echo "  signing with the certificate created by scripts/create-signing-identity.sh"
-  fi
-fi
-if [ -z "$IDENTITY" ]; then
-  IDENTITY="-"
-  echo "  no certificate on this machine → signing ad-hoc. The sandbox still applies and the"
-  echo "  container is still reused, but an ad-hoc signature is the *hash of this build*: every"
-  echo "  rebuild looks like a different app to macOS, so permissions granted to Maccy"
-  echo "  (Accessibility for pasting) are asked again. Fix once with:"
-  echo "      scripts/create-signing-identity.sh"
-fi
-[ "$IDENTITY" = "-" ] || echo "  identity: $IDENTITY"
-
-# --deep signs Sparkle.framework and its helpers with the same entitlements, which is what the
-# sandboxed upstream build does too. Notarization is a separate matter — see docs/releasing.md.
-run codesign --force --deep --sign "$IDENTITY" --entitlements "$ENTITLEMENTS" --options runtime "$BUILT_APP"
-if [ "$DRY_RUN" = 0 ]; then
-  codesign --verify --strict "$BUILT_APP"
-  codesign -d --entitlements - "$BUILT_APP" 2>&1 | grep -q "com.apple.security.app-sandbox" \
-    || fail "the signature carries no app-sandbox entitlement — the container would not be reused"
-  echo "  signed, sandbox entitlement present"
-  # The designated requirement is what macOS stores (in TCC, in keychain ACLs) and later re-checks
-  # against the app. Ours is printed here so that "are permissions stable?" is answerable without
-  # guessing: `certificate` means yes, `cdhash` means only until the next rebuild.
-  DR=$(codesign -d -r- "$BUILT_APP" 2>&1 | sed -n 's/^#* *designated => //p')
-  echo "  requirement: $DR"
-  case "$DR" in
-    *cdhash*) echo "  ⚠ per-build requirement: a rebuild will look like a different app to macOS" ;;
-    *)        echo "  ✓ stable across rebuilds (it names the certificate, not the binary)" ;;
-  esac
-fi
-rm -f "$ENTITLEMENTS"
 
 # MARK: - Backup
 
