@@ -161,6 +161,54 @@ What that splits into:
   button rather than `autoOpen`, and the preview content depends on which row was selected), but
   the conclusion that this is not `-Onone` overhead holds.
 
+## After the hover fix — rows no longer rebuild on every hover
+
+Replayed on 2026-09-12 with the same store (200 items, fresh copy), the same Debug build settings and
+the same scenario (status-item click, `move` sweep with `smooth: true` over 20 rows, dwell for the
+preview), only the code changed: `NavigationManager.isMultiSelectActive` is now a stored flag that is
+written only when it flips, and the values a row derives from its item (`imageData`, `hasImage`,
+`accessibilityLabel`, `application`, `ColorImage`) are cached.
+
+| metric | before (Debug) | after (Debug) |
+| --- | --- | --- |
+| row bodies rebuilt per hover event | **~57** | **3.98** (490 bodies / 123 hovers) |
+| `hover.cursorToCallback.ms`, mean per second | p50 52.7, max 486 | **p50 4.6**, min 2.6, max 12.7 |
+| worst single cursor → callback | **660.7 ms** | **41.6 ms** |
+| `hover.applySelection` interval | p50 0.29 ms | 0.21 – 0.23 ms |
+| `fps` while sweeping (idle 60) | 5.7 – 55 | **36.0 – 58.9** (p50 46.6) |
+| `hitches` per second while sweeping | up to 10 | up to 12 |
+| `dropped` frames per second | up to 86 | up to 25 |
+| worst frame gap while sweeping | 190 – 1025 ms | 35.6 – 130.5 ms |
+| popup first frame, status item click | 163.2 ms median (n=5) | 148.9 ms median (n=5) |
+| preview animation | 323.8 ms median (n=6) | 319.5 ms median (n=3) |
+
+The per-second counters confirm the mechanism rather than just the number: inside every window that
+has hover activity, `decorator.accessibilityLabel`, `decorator.hasImage`, `historyItem.imageData`,
+`decorator.application.lookup` and `nav.isMultiSelectActive.changes` are **absent** — the whole 200-item
+item pool is touched zero times during a sweep. `list.row.listItem.body` matches `list.row.body`
+exactly (4 per hover), so the 4 rebuilt rows are the selection change itself: the newly selected row,
+the previously selected one, and their `previous`/`next` neighbours, which the row reads for
+`selectionAppearance`. `colorImage.from` is still called once per rebuilt row but now hits the cache
+(`colorImage.cached`), so it costs ~0.03 ms instead of rasterizing.
+
+What is left, and what it is not:
+
+* The remaining ~14 ms of input latency and `fps` 36–59 are no longer a whole-list re-render. Part of it
+  is the SwiftUI layout/commit of the 4 rebuilt rows, and each selection change also announces for
+  accessibility and calls `preview.startAutoOpen`/`resetAutoOpenSuppression` — that path is the next
+  thing to profile (Zone 3), not the row getters.
+* Zone 1 and Zone 3 are unchanged, as expected — this change does not touch the first layout or the
+  preview animation. The popup medians (163.2 → 148.9 ms) and the preview medians (323.8 → 319.5 ms)
+  are within the run-to-run spread of the scenarios above.
+* One `hover.cursorToCallback.ms` sample of 49428 ms appeared in the after-run (the first hover event
+  delivered to a freshly installed tracking area carries a stale timestamp). It is an artifact of the
+  event timestamp, not a stall; the next-worst sample is 41.6 ms.
+* A confirmation run (same scenario, after marking the memo fields `@ObservationIgnored` so that
+  filling a cache cannot invalidate the row that is reading it) reproduced the ratio exactly:
+  68 hovers, 271 row bodies, **3.99 per hover**, still zero derived-value recomputations and no
+  "modifying state during view update" messages; `hover.cursorToCallback.ms` p50 9.2 ms (min 2.4,
+  max 15.3), `fps` p50 52.4.
+
 ## Caveats
 
 * The instrumentation is on, which adds one lock + dictionary update per counter (~1000 s⁻¹ in the

@@ -17,6 +17,8 @@
   --args enable-testing` (env из `xcodebuild` в тест-хост не пробрасывается, а `open --env` — пробрасывает).
   В Release `#if DEBUG` вырезан, поэтому этот способ там не работает. Живой сценарий и медианы —
   `docs/performance-baseline.md`.
+- Свип курсора по строкам попапа: `see` (Peekaboo) даёт геометрию — первая строка `y=59`,
+  шаг `itemHeight` = 22 pt, `x` внутри попапа; в этой сборке это `x≈1150`, `y=100…520`.
 
 ## Грабли → правило
 
@@ -38,9 +40,12 @@
 6. **Токены-заглушки в правках** (`…-placeholder`) потом нужно вычищать. Правило: большие вставки —
    перезаписью файла целиком; перед сборкой — `grep -rn "placeholder"` по изменённым файлам.
 7. **Сюита тестов падает по средовым причинам**, а не из-за правок: `HistoryItemDecoratorTests` —
-   `DateFormatter.date(from:)` возвращает `nil` при locale вида `en_US@rg=…`; `ClipboardTests
-   .testIgnoreAllApplicationsExcept` требует Xcode в foreground. Правило: сначала baseline-прогон,
-   и не расследовать эти два падения заново.
+   `DateFormatter.date(from:)` возвращает `nil` при locale вида `en_US@rg=…` (падает с fatal error
+   на IUO в `HistoryDecoratorTests.swift:152`, тест-раннер перезапускается); `ClipboardTests
+   .testIgnoreAllApplicationsExcept` и `ClipboardTests.testIgnoreApplication` — зеркальная пара:
+   первое требует, чтобы frontmost-приложение было в allow-list (`com.apple.dt.Xcode`), второе —
+   чтобы оно было в `ignoredApps`. Оба про foreground Xcode. Правило: сначала baseline-прогон,
+   и не расследовать эти падения заново.
 8. **Флаг проектировать тестируемым сразу** (рантайм-override + сеттер), если на него будут тесты.
 9. **Пользовательский инстанс Maccy может быть запущен** и пишет в общее
    `~/Library/Application Support/Maccy/Storage.sqlite`. Правило: перед запуском/тестами —
@@ -57,6 +62,20 @@
     попап к курсору и делает замеры по зонам несравнимыми. Правило: перед сравнением прогонов
     сверять `position=` в `popup.open.firstFrame`, а различающиеся настройки приводить к одному
     значению (и возвращать назад после прогона).
+12. **Тело строки списка под `@Observable` — это горячий цикл.** Любое свойство, прочитанное
+    в `HistoryItemView.body`/`ListItemView.body`, подписывает строку на изменения, и запись в него
+    пересобирает **все** видимые строки. Запись происходит даже при присваивании того же значения.
+    Симптом: `list.row.body` растёт как `hover × число строк` (~57), а не как число изменившихся
+    строк. Правило: в теле строки читать только то, что меняется у самой строки
+    (`selectionIndex`), а глобальные флаги держать отдельным свойством, которое пишется
+    **только при смене значения** (`NavigationManager.isMultiSelectActive`), и кэшировать всё
+    производное от элемента (`imageData`, `hasImage`, `accessibilityLabel`, `ColorImage`).
+    Замер — счётчик `list.row.body` в `frame.stats`.
+13. **Клики/курсор синтезирует только Peekaboo MCP**, и `move` без `smooth: true` **телепортирует
+    курсор** (в ответе `in 0.00s`), не порождая `mouseMoved` — hover при этом не сработает.
+    Правило: свип курсора — `move` с `smooth: true` + `duration` + `steps`; клик по иконке — `click`
+    с `foreground: true` (он отвечает `Click did not return a confirmed outcome`, но клик
+    доставляется — проверять по `popup.open.begin` в логе).
 
 ## Порядок работы
 

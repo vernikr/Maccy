@@ -25,29 +25,46 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
   }
   var shortcuts: [KeyShortcut] = []
 
+  // Memoization only: these are filled while a row body is being evaluated, so they are kept out
+  // of the observation graph (writing them must not invalidate the row that is reading them).
+  @ObservationIgnored private var cachedApplication: String??
+  @ObservationIgnored private var cachedHasImage: Bool?
+  @ObservationIgnored private var cachedAccessibilityLabel: String?
+  @ObservationIgnored private var cachedAccessibilityLabelContext: MultiSelectionContext?
+
   var application: String? {
     if item.universalClipboard {
       return "iCloud"
     }
 
+    if let cachedApplication {
+      return cachedApplication
+    }
+
+    // Resolved once per item, not on every row body evaluation.
     guard let bundle = item.application else {
+      cachedApplication = .some(nil)
       return nil
     }
 
-    // Resolved on every access, so it is worth knowing how often this lookup happens.
     let url = Perf.counted("decorator.application.lookup") {
       NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
     }
 
-    guard let url else {
-      return nil
-    }
-
-    return url.deletingPathExtension().lastPathComponent
+    let name = url?.deletingPathExtension().lastPathComponent
+    cachedApplication = .some(name)
+    return name
   }
 
   var hasImage: Bool {
-    Perf.counted("decorator.hasImage") { item.image != nil }
+    if let cachedHasImage {
+      return cachedHasImage
+    }
+
+    // `item.image` scans the stored contents (and may decode an image), so the answer is kept.
+    let value = Perf.counted("decorator.hasImage") { item.image != nil }
+    cachedHasImage = value
+    return value
   }
 
   var previewImageGenerationTask: Task<(), Error>?
@@ -74,19 +91,59 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
 
   private(set) var item: HistoryItem
   
+  /// Everything the accessibility label needs about the current multi-selection. Both fields come
+  /// from `NavigationManager` properties that are quiet during ordinary navigation.
+  struct MultiSelectionContext: Equatable {
+    var index: Int
+    var count: Int
+  }
+
+  /// The row's own position in the multi-selection, or `nil` outside of it.
   var multiSelectionIndex: Int? {
-    guard AppState.shared.navigator.isMultiSelectInProgress else {
+    // `isMultiSelectActive` (not `isMultiSelectInProgress`) on purpose: the latter reads
+    // `selection`, which is reassigned on every hover, and observing it from a row body would
+    // invalidate every visible row on every hover event.
+    guard AppState.shared.navigator.isMultiSelectActive else {
       return nil
     }
     return selectionIndex
   }
-  
-  // Describe the complete item independently of its potentially truncated visual content.
-  var accessibilityLabel: String {
-    Perf.counted("decorator.accessibilityLabel") { buildAccessibilityLabel() }
+
+  private var multiSelectionContext: MultiSelectionContext? {
+    guard AppState.shared.navigator.isMultiSelectActive else {
+      return nil
+    }
+    return MultiSelectionContext(
+      index: selectionIndex,
+      count: AppState.shared.navigator.multiSelectCount
+    )
   }
 
-  private func buildAccessibilityLabel() -> String {
+  // Describe the complete item independently of its potentially truncated visual content.
+  var accessibilityLabel: String {
+    let context = multiSelectionContext
+
+    if cachedAccessibilityLabelContext == context,
+       let cachedAccessibilityLabel {
+      return cachedAccessibilityLabel
+    }
+
+    let label = Perf.counted("decorator.accessibilityLabel") { buildAccessibilityLabel(context) }
+    cachedAccessibilityLabel = label
+    cachedAccessibilityLabelContext = context
+    return label
+  }
+
+  /// Drops everything derived from `item`. Has to be called whenever the item changes underneath
+  /// the decorator, otherwise the row keeps rendering the previous title, pin or image state.
+  func invalidateDerivedValues() {
+    cachedApplication = nil
+    cachedHasImage = nil
+    cachedAccessibilityLabel = nil
+    cachedAccessibilityLabelContext = nil
+  }
+
+  private func buildAccessibilityLabel(_ context: MultiSelectionContext?) -> String {
     var parts: [String] = []
     if hasImage, let image = item.image {
       let size = image.pixelSize
@@ -100,8 +157,8 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     if isPinned {
       parts.append(NSLocalizedString("history_item_pinned_accessibility_value", comment: ""))
     }
-    if let index = multiSelectionIndex {
-      parts.append(String(format: NSLocalizedString("history_item_selected_accessibility_value", comment: ""), index + 1, AppState.shared.navigator.selection.count))
+    if let context {
+      parts.append(String(format: NSLocalizedString("history_item_selected_accessibility_value", comment: ""), context.index + 1, context.count))
     }
     return parts.joined(separator: ", ")
   }
@@ -244,6 +301,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
       item.pin
     } onChange: {
       DispatchQueue.main.async {
+        self.invalidateDerivedValues()
         if let pin = self.item.pin {
           self.shortcuts = KeyShortcut.create(character: pin)
         }
@@ -257,6 +315,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
       item.title
     } onChange: {
       DispatchQueue.main.async {
+        self.invalidateDerivedValues()
         self.title = self.item.title
         self.synchronizeItemTitle()
       }

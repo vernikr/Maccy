@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA1E1000000000000000B002 /* PerfBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000B001 /* PerfBaselineTests.swift */; };
 		AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */; };
+		AA1E1000000000000000C002 /* NavigationSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000C001 /* NavigationSelectionTests.swift */; };
 		AA1E1000000000000000A003 /* Perf.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A002 /* Perf.swift */; };
 		AA1E1000000000000000A005 /* PerfCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A004 /* PerfCounters.swift */; };
 		AA1E1000000000000000A007 /* PerfFrameMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E1000000000000000A006 /* PerfFrameMonitor.swift */; };
@@ -195,6 +196,7 @@
 /* Begin PBXFileReference section */
 		AA1E1000000000000000B001 /* PerfBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfBaselineTests.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfInstrumentationTests.swift; sourceTree = "<group>"; };
+		AA1E1000000000000000C001 /* NavigationSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationSelectionTests.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A002 /* Perf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Perf.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A004 /* PerfCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfCounters.swift; sourceTree = "<group>"; };
 		AA1E1000000000000000A006 /* PerfFrameMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfFrameMonitor.swift; sourceTree = "<group>"; };
@@ -773,6 +775,7 @@
 				DA360DB21E3DF137005C6F6B /* HistoryTests.swift */,
 				AA1E1000000000000000A00A /* PerfInstrumentationTests.swift */,
 				AA1E1000000000000000B001 /* PerfBaselineTests.swift */,
+				AA1E1000000000000000C001 /* NavigationSelectionTests.swift */,
 				DA1EDE422045B35300479723 /* HistoryDecoratorTests.swift */,
 				DAFE2DE8268A9B1B00990986 /* HistoryItemTests.swift */,
 				DA384E85232746D800603999 /* SearchTests.swift */,
@@ -1140,6 +1143,7 @@
 				DA360DB31E3DF137005C6F6B /* HistoryTests.swift in Sources */,
 				AA1E1000000000000000A00C /* PerfInstrumentationTests.swift in Sources */,
 				AA1E1000000000000000B002 /* PerfBaselineTests.swift in Sources */,
+				AA1E1000000000000000C002 /* NavigationSelectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

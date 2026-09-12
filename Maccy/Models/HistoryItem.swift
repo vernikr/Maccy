@@ -158,8 +158,18 @@ class HistoryItem {
     }
   }
 
+  /// `nil` means "not resolved yet", `.some(nil)` means "resolved, this item has no image".
+  @Transient private var cachedImageData: Data??
+
   var imageData: Data? {
     Perf.count("historyItem.imageData")
+
+    // The lookup walks the stored contents (and may read a file for universal clipboard items),
+    // and rows ask for it on every body evaluation, so the answer is remembered.
+    if let cachedImageData {
+      Perf.count("historyItem.imageData.cached")
+      return cachedImageData
+    }
 
     var data: Data?
     data = contentData(Self.imageTypes)
@@ -167,6 +177,7 @@ class HistoryItem {
       data = try? Data(contentsOf: url)
     }
 
+    cachedImageData = .some(data)
     return data
   }
 
@@ -201,6 +212,7 @@ class HistoryItem {
   func clearDecodedImageCache() {
     cachedDecodedImage?.recache()
     cachedDecodedImage = nil
+    cachedImageData = nil
   }
 
   var text: String? {

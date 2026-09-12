@@ -16,6 +16,42 @@ class NavigationManager { // swiftlint:disable:this type_body_length
       selection.forEach { _, item in item.selectionIndex = -1 }
       newValue.forEach { index, item in item.selectionIndex = index }
     }
+    didSet {
+      synchronizeMultiSelectActive()
+    }
+  }
+
+  /// Mirrors `isMultiSelectInProgress` as a plain stored property that is only written when the
+  /// value actually flips. Rows read this to decide whether to show a selection number, so it has
+  /// to stay quiet during ordinary navigation: `selection` is reassigned on every hover, and a row
+  /// that observed `selection.count` would be invalidated on every hover, rebuilding the whole list.
+  private(set) var isMultiSelectActive: Bool = false {
+    didSet { Perf.count("nav.isMultiSelectActive.changes") }
+  }
+
+  /// Number of selected items while multi-selection is active, `0` otherwise. Rows interpolate it
+  /// into their accessibility label ("Selected, 1 of 3"), so it lives here rather than being read
+  /// from `selection`: hover is ignored while multi-selection is in progress, which means this is
+  /// only written on deliberate ⌘-clicks and never on an ordinary hover.
+  private(set) var multiSelectCount: Int = 0
+
+  private func synchronizeMultiSelectActive() {
+    let active = isMultiSelectInProgress
+
+    if active {
+      if multiSelectCount != selection.count {
+        multiSelectCount = selection.count
+      }
+    } else if multiSelectCount != 0 {
+      multiSelectCount = 0
+    }
+
+    guard active != isMultiSelectActive else {
+      Perf.count("nav.isMultiSelectActive.noopWrites")
+      return
+    }
+
+    isMultiSelectActive = active
   }
 
   var scrollTarget: UUID?
@@ -66,7 +102,11 @@ class NavigationManager { // swiftlint:disable:this type_body_length
     return leadSelection != nil && leadSelection == history.pasteStack?.id
   }
 
-  var isManualMultiSelect: Bool = false
+  var isManualMultiSelect: Bool = false {
+    didSet {
+      synchronizeMultiSelectActive()
+    }
+  }
   var isMultiSelectInProgress: Bool {
     return isManualMultiSelect || selection.count > 1
   }

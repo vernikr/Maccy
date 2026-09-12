@@ -98,10 +98,19 @@ filter storm and the thumbnail generation.
 
 Counters: `hover.mouseMoved` (events per second), `hover.select.scannedItems` (how many items
 the linear id lookup walks), `nav.isKeyboardNavigating.writes` vs `.noopWrites` (writes that did
-not change the value), `nav.leadHistoryItem.changed/unchanged`, `decorator.accessibilityLabel`,
-`decorator.application.lookup`, `colorImage.from`, `decorator.previewText`, `historyItem.image*`
+not change the value), `nav.isMultiSelectActive.changes` vs `.noopWrites` (the flag every row
+body reads — a `.changes` in a hover window means the rows were invalidated),
+`nav.leadHistoryItem.changed/unchanged`, `decorator.accessibilityLabel`,
+`decorator.application.lookup`, `colorImage.from` vs `colorImage.cached`,
+`decorator.previewText`, `historyItem.imageData` vs `historyItem.imageData.cached`
 and the `list.row.body` / `list.row.listItem.body` re-evaluations. Together they show whether the
 lag is delivery, state propagation or per-row work.
+
+The decisive ratio is `list.row.body / hover.onHover` inside one `frame.stats` window: it is the
+number of rows one hover costs. An **empty** `frame.stats`-window counter set for
+`decorator.accessibilityLabel`, `decorator.hasImage`, `historyItem.imageData` and
+`decorator.application.lookup` is the point, not a measurement failure — in a healthy run the
+derived values are resolved on first layout and never again during a sweep.
 
 ## Zone 3 — preview animation
 
@@ -167,6 +176,10 @@ open -n -g -a .build/Build/Products/Debug/Maccy.app \
 also moves preferences into a throwaway suite and turns off update checks. Drive the popup with
 `⌘⇧C` or by clicking the status item, and move the real cursor across the rows — AppleScript and
 AX presses do not produce `mouseMoved` events, so hover has to come from a physical pointer.
+Peekaboo MCP does move the real pointer: `click` with `foreground: true` on the status item, then
+`move` with `smooth: true` + `duration` + `steps` (without `smooth` the tool teleports the cursor in
+0.00 s and nothing hovers). Its `see` output is also the quickest way to get the row geometry:
+first row at `y=59`, then every `Popup.itemHeight` (22 pt) down.
 
 ## Caveats
 
