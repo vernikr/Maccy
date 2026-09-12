@@ -92,6 +92,10 @@ except that every rebuild then looks like a new app to macOS (Accessibility has 
 `scripts/create-signing-identity.sh` fixes that once with a local certificate. Details and
 measurements are in [docs/installing.md](docs/installing.md).
 
+After that it keeps itself current: Sparkle reads this fork's own `appcast.xml`, so a release
+published with `scripts/local-release.sh` reaches the installed app without rebuilding or copying
+anything — it is picked up at launch and installed when the app quits.
+
 Where to look next:
 
 * [docs/performance-baseline.md](docs/performance-baseline.md) — the measurements, the scenarios, and

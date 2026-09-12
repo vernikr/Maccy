@@ -72,6 +72,46 @@ changes. Publishing an update therefore takes three steps:
 A channel with no `<item>` is valid and means "no update available" — that is what a fork build sees
 until its first signed release is published.
 
+## 4a. A local release that updates itself — `scripts/local-release.sh`
+
+Sections 3–5 need an Apple Developer ID and a notarization profile, which not every machine has. A
+build signed with the local "Maccy Local Signing" certificate still updates itself, and
+`scripts/local-release.sh` is the whole of that path in one command:
+
+```bash
+scripts/local-release.sh              # --version/--build to override, --no-publish, --dry-run
+```
+
+It builds Release, signs the app with `scripts/sign-app.sh`, signs the **zip** with this fork's Sparkle
+private key, publishes the zip as a GitHub release and adds the appcast entry — printing the three
+git commands that put the feed live.
+
+**Why an update is accepted without a Developer ID.** Sparkle takes an update when *either* the
+archive's EdDSA signature verifies against the running app's `SUPublicEDKey` *or* the two apps' code
+signatures match (`Sparkle/SUUpdateValidator.m`: `if (passedDSACheck || passedCodeSigning)`). The
+EdDSA check is the one that carries this; nothing about the app's own signature is required. Because
+that signature is a certificate rather than ad-hoc, the app also keeps its macOS permissions across
+the update (docs/installing.md).
+
+**What the installed app has to be told.** Two preferences, both in the installed app's sandbox
+container:
+
+```bash
+P="$HOME/Library/Containers/org.p0deje.Maccy/Data/Library/Preferences"
+defaults write "$P/org.p0deje.Maccy" SUAutomaticallyUpdate -bool true   # install on quit, no dialog
+defaults delete "$P/org.p0deje.Maccy" SULastCheckTime                   # forget the last check
+```
+
+`scripts/install.sh` writes both, so a build it installs keeps itself current; `--no-auto-update`
+skips that. `defaults` on the bare bundle id would resolve to whichever app holds it (AGENTS.md rule
+10), hence the explicit path.
+
+**Two things that will waste your time.** `raw.githubusercontent.com` caches the feed for a few
+minutes, so a just-pushed `appcast.xml` can still read old — check with the GitHub API
+(`gh api repos/vernikr/Maccy/contents/appcast.xml`) before concluding the release did not publish.
+And Sparkle only rewrites the app when the app quits: an update that verifies and then seems to do
+nothing is waiting for that.
+
 ## 5. Tag and publish
 
 ```bash

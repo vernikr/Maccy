@@ -50,10 +50,17 @@ container sits there untouched. Nothing is lost, but the app cannot see it.
 4. **Quits** the running Maccy, replaces `/Applications/Maccy.app`, clears the quarantine flag and
    re-registers the bundle with LaunchServices.
 5. **Verifies**: signature, entitlements, installed version, and how many items the container holds.
-6. **Launches** it.
+6. **Arms self-updates**: writes `SUAutomaticallyUpdate` into the app's own container and forgets
+   `SULastCheckTime`, so the next launch checks this fork's appcast straight away and the update
+   installs when the app quits. `--no-auto-update` leaves those preferences alone.
+7. **Launches** it.
 
 `--dry-run` prints every step without touching anything, `--no-build` installs the current
-`.build/Build/Products/Release/Maccy.app`, `--no-launch` skips the final `open`.
+`.build/Build/Products/Release/Maccy.app` (or `SOURCE_APP=<path>` any other bundle — handy for
+putting a specific version back), `--no-launch` skips the final `open`.
+
+Once installed this way the app does not need the script again: pushing a release with
+`scripts/local-release.sh` is enough (docs/releasing.md, section 4a).
 
 ## Verified on this machine, 2026-09-12
 
