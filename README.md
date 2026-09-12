@@ -8,6 +8,22 @@
 [![Downloads](https://img.shields.io/github/downloads/p0deje/Maccy/total.svg)](https://github.com/p0deje/Maccy/releases/latest)
 [![Build Status](https://img.shields.io/bitrise/716921b669780314/master?token=3pMiCb5dpFzlO-7jTYtO3Q)](https://app.bitrise.io/app/716921b669780314)
 
+> ### Same Maccy, without the slowness
+>
+> This is a **performance fork** of [Maccy](https://github.com/p0deje/Maccy). Nothing was added or
+> removed — same features, same settings, same shortcuts, same saved history. What changed is the
+> speed of the two things you touch all day:
+>
+> * **The menu opens instantly** — including the first time after launch, which used to lag.
+> * **The list keeps up with your mouse** — the row under the cursor lights up right away, and rows
+>   with pictures no longer stutter while they appear.
+> * **Pictures are prepared in the background**, so the list never freezes while it draws them.
+>
+> Measured on a 200-item history: the first menu opening went from **~170 ms to ~65 ms** (a later
+> opening was already ~65 ms), and the delay between the cursor reaching a row and the row lighting up
+> from **~53 ms to ~3 ms**. Every number, with the scenario it was taken in, is in
+> [docs/performance-baseline.md](docs/performance-baseline.md).
+
 Maccy is a lightweight clipboard manager for macOS. It keeps the history of what you copy
 and lets you quickly navigate, search, and use previous clipboard contents.
 
@@ -15,6 +31,7 @@ Maccy works on macOS Sonoma 14 or higher.
 
 <!-- vim-markdown-toc GFM -->
 
+* [This fork](#this-fork)
 * [Features](#features)
 * [Install](#install)
 * [Usage](#usage)
@@ -33,6 +50,39 @@ Maccy works on macOS Sonoma 14 or higher.
 * [License](#license)
 
 <!-- vim-markdown-toc -->
+
+## This fork
+
+This repository is a fork of [p0deje/Maccy](https://github.com/p0deje/Maccy) based on **2.7.1**. It
+is not a feature fork: the settings, the shortcuts, the storage format and the translations are
+upstream's, and the clipboard history you already have keeps working. Everything here is about how
+fast the app feels.
+
+| what you do | before | after |
+| --- | --- | --- |
+| open the menu, **first time after launch** | ~170 ms | **~65 ms**, the same as any later opening |
+| open it again | ~65 ms | unchanged |
+| move the cursor down the list | highlight trails the cursor by ~53 ms, up to 0.7 s | **~3 ms**, worst case ~35 ms |
+| rows with pictures scrolling into view | a 131 ms stall while they are drawn | drawn in the background |
+
+How it is done, in one paragraph: the popup's view tree is built, laid out and presented once, hidden
+outside every screen, about a second after launch; rows are rebuilt only when the selection actually
+changes, and the values a row derives from an item are cached; thumbnails are rasterized off the main
+thread; and the first display link of the process no longer lands inside the first opening.
+
+Two honest caveats. The warm-up costs ~400 ms of work at launch, about a second after the app starts,
+where nobody is waiting for the popup yet — if you click the icon during that first second, the menu
+waits for it. And absolute timings move with machine load: the numbers above were measured against a
+baseline rebuilt in the same session, which is why they are quoted together with their scenarios in
+[docs/performance-baseline.md](docs/performance-baseline.md) rather than as a promise.
+
+Where to look next:
+
+* [docs/performance-baseline.md](docs/performance-baseline.md) — the measurements, the scenarios, and
+the wrong diagnoses along the way.
+* [docs/performance-profiling.md](docs/performance-profiling.md) — how to reproduce any of it.
+* [docs/releasing.md](docs/releasing.md) — how a release of this fork is cut.
+* [CHANGELOG.md](CHANGELOG.md) — what changed on top of upstream 2.7.1.
 
 ## Features
 

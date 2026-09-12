@@ -12,6 +12,9 @@
 - Проверка ссылок в проекте: `python3 scripts/validate-pbxproj.py` (или `bash scripts/perf.sh validate`).
 - Конфигурации: Debug = `-Onone` + условие `DEBUG`; Release = `-O` + `wholemodule`, условия `DEBUG` нет.
   Release-сборка: тот же `xcodebuild` с `-configuration Release`.
+- Версия: `MARKETING_VERSION` и `CURRENT_PROJECT_VERSION` в `Maccy.xcodeproj/project.pbxproj` (четыре
+  строки, обе конфигурации); релиз этого форка (подпись, нотаризация, свой appcast вместо апстримного,
+  тег) — `docs/releasing.md`.
 - Прогон на копии реальной истории (не трогая данные пользователя):
   `open -n -g -a …/Debug/Maccy.app --env MACCY_PERF=1 --env MACCY_STORAGE_PATH=/tmp/copy.sqlite
   --args enable-testing` (env из `xcodebuild` в тест-хост не пробрасывается, а `open --env` — пробрасывает).
