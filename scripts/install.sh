@@ -9,7 +9,10 @@
 # Apple certificate is available, which is enough for the sandbox to apply and for this Mac to
 # keep the very same container, the same history and the same settings.
 #
-# Usage: scripts/install.sh [--no-build] [--no-launch] [--dry-run]
+# Usage: scripts/install.sh [--no-build] [--no-launch] [--no-auto-update] [--dry-run]
+#
+#   --no-auto-update   leave Sparkle's preferences alone (by default the script turns on silent
+#                      updates, so this fork keeps itself current without a rebuild)
 #
 #   CODESIGN_IDENTITY  certificate to sign with (default: the best one in the keychain —
 #                      "Developer ID Application", then "Apple Development", then the
@@ -27,11 +30,13 @@ cd "$ROOT_DIR"
 
 BUILD=1
 LAUNCH=1
+AUTO_UPDATE=1
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --no-build) BUILD=0 ;;
     --no-launch) LAUNCH=0 ;;
+    --no-auto-update) AUTO_UPDATE=0 ;;
     --dry-run) DRY_RUN=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
@@ -153,6 +158,28 @@ if [ "$DRY_RUN" = 0 ]; then
   fi
 fi
 
+# MARK: - Sparkle preferences
+
+# An installed build should keep itself current: Sparkle checks at launch, and
+# SUAutomaticallyUpdate makes it install the update on quit instead of waiting for someone to
+# agree to a dialog. Both live in the app's sandbox container. The path is spelled out rather than
+# using the bundle id: rule 10 of AGENTS.md — `defaults` on a bundle id resolves to whichever app
+# holds that id, so a stray `defaults write org.p0deje.Maccy` from a non-installed build lands
+# somewhere else entirely.
+if [ "$AUTO_UPDATE" = 1 ]; then
+  step "Letting Sparkle keep this install up to date"
+  PREF_DOMAIN="$CONTAINER/Data/Library/Preferences/$BUNDLE_ID"
+  FEED=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$TARGET_APP/Contents/Info.plist" 2>/dev/null || true)
+  echo "  feed: ${FEED:-<none — nothing could ever update>}"
+  run mkdir -p "$(dirname "$PREF_DOMAIN")"
+  run defaults write "$PREF_DOMAIN" SUAutomaticallyUpdate -bool true
+  # Forgetting the last check makes the next launch check immediately instead of in a day.
+  run defaults delete "$PREF_DOMAIN" SULastCheckTime 2>/dev/null || true
+  if [ "$DRY_RUN" = 0 ]; then
+    echo "  SUAutomaticallyUpdate = $(defaults read "$PREF_DOMAIN" SUAutomaticallyUpdate 2>/dev/null || echo '?')"
+  fi
+fi
+
 # MARK: - Launch
 
 if [ "$LAUNCH" = 1 ]; then
@@ -175,4 +202,8 @@ cat <<EOF
 
   To update later, after pulling:
     git pull && scripts/install.sh
+
+  It also keeps itself current on its own: Sparkle checks at launch and installs the update when
+  you quit, from this fork's own appcast. Push a release with scripts/local-release.sh and the app
+  picks it up; run with --no-auto-update to leave those preferences alone.
 EOF
