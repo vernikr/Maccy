@@ -19,6 +19,7 @@
 #   APP_DIR            where the app is installed            (default: /Applications)
 #   BACKUP_DIR         where the app and the container are   (default: ~/Library/Application Support/MaccyFork)
 #                      copied before being touched
+#   SOURCE_APP         the .app to install                     (default: the Release build in .build)
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,7 +39,9 @@ done
 
 APP_DIR="${APP_DIR:-/Applications}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/Library/Application Support/MaccyFork}"
-BUILT_APP="$ROOT_DIR/.build/Build/Products/Release/Maccy.app"
+# SOURCE_APP lets you install a build made with another -derivedDataPath, which is how a rebuild can
+# be told apart from what is already installed.
+BUILT_APP="${SOURCE_APP:-$ROOT_DIR/.build/Build/Products/Release/Maccy.app}"
 LOG=/tmp/maccy-install-build.log
 
 step() { echo; echo "=== $*"; }

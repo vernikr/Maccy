@@ -109,13 +109,32 @@ it as valid unless you ask for `--trust`. Signing and verification work without 
 Keep the certificate. Delete it, or recreate it under a new name, and the requirement changes —
 rebuilds start looking like a new app again.
 
-One honest limit to the evidence above: it demonstrates the mechanism on this machine — the user TCC
-database really does store requirements (a decoded `csreq` reads, for example,
-`identifier "com.apple.weather" and anchor apple`) — but it contains **no Accessibility grant for
-Maccy at all**, so there was nothing existing to preserve. The end-to-end "grant once, rebuild, still
-granted" run needs a grant to exist first: grant Accessibility (System Settings → Privacy &
-Security → Accessibility), then re-run `scripts/install.sh` and check that the app is not asked
-again.
+### Verified end to end
+
+Run on this machine, with a real grant. macOS 15 keeps Accessibility in the *system* TCC database,
+and the entry recorded for the certificate-signed app reads:
+
+```sh
+$ sqlite3 -readonly "/Library/Application Support/com.apple.TCC/TCC.db" \
+    "select hex(csreq) from access where service='kTCCServiceAccessibility' and client='org.p0deje.Maccy'"
+FADE0C00…5AE9DFA7027AF3ADE8EC28EEF92ED77BF4DD55ED     # the certificate's SHA-1, not a binary hash
+```
+
+Then the app was built from scratch again — a genuinely different executable (`shasum` `dd36cb87…`
+→ `24274b6f…` → `cb46a268…`) — and reinstalled twice. After each install:
+
+| check | result |
+| --- | --- |
+| the TCC row's `csreq`, byte for byte | **unchanged** (and `last_modified` still marks the moment the grant was given, not the reinstall) |
+| the installed app against that stored requirement — `codesign --verify --strict -R <the csreq blob>` | **MATCH** |
+| the same build re-signed ad-hoc, same check | **NO MATCH** |
+| history / container / sandbox | 200 items, the same container, `~/Library/Application Support/Maccy` still empty |
+
+So the permission survives reinstalls, and the ad-hoc build of that very binary would not have
+inherited it. One trap for whoever repeats this: `AXIsProcessTrusted` is **not** a usable probe for
+"does *this app* have the grant", because a child process takes on the TCC responsibility of what
+started it — a helper launched from an already-granted terminal reports `trusted=YES` however it is
+signed. Compare the stored requirement instead, as above.
 
 ## What ad-hoc signing costs
 
