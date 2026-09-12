@@ -198,7 +198,7 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     }
     Perf.count("decorator.ensureThumbnailImage")
     thumbnailImageGenerationTask = Task { [weak self] in
-      self?.generateThumbnailImage()
+      await self?.generateThumbnailImage()
     }
   }
 
@@ -244,15 +244,45 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
   }
 
   @MainActor
-  private func generateThumbnailImage() {
+  private func generateThumbnailImage() async {
     guard let image = item.image else {
       return
     }
-    // `NSImage.resized` returns a lazily drawn image: the actual rasterization happens
-    // on the first draw, which is why `frame.stats` hitches matter here.
-    thumbnailImage = Perf.measure("decorator.thumbnailImage", zone: .popup) {
-      image.resized(to: HistoryItemDecorator.thumbnailImageSize)
+
+    let size = HistoryItemDecorator.thumbnailImageSize
+    let scale = HistoryItemDecorator.backingScaleFactor
+    let thumbnail = await HistoryItemDecorator.rasterize(image: image, to: size, scale: scale)
+
+    guard !Task.isCancelled else {
+      return
     }
+
+    thumbnailImage = thumbnail
+  }
+
+  /// Rasterizes a row's thumbnail off the main thread.
+  ///
+  /// `NSImage.resized` returns a lazily drawn image whose handler only runs on the first draw — for a
+  /// row that draw happens inside the popup's first paint, so the first frame paid for every row on
+  /// screen. Doing it here instead is what keeps both the first open and every row scrolled into view
+  /// from stalling on it; see Zone 1 in `docs/performance-baseline.md`.
+  nonisolated static func rasterize(image: NSImage, to size: NSSize, scale: CGFloat) async -> NSImage {
+    await Task.detached(priority: .userInitiated) {
+      Perf.measure("decorator.thumbnailImage", zone: .popup) {
+        HistoryItemDecorator.rasterizeImage(image, size, scale)
+      }
+    }.value
+  }
+
+  /// Seam for tests: how a thumbnail is turned into pixels. Always called off the main thread.
+  static var rasterizeImage: (NSImage, NSSize, CGFloat) -> NSImage = { image, size, scale in
+    image.rasterized(to: size, scale: scale)
+  }
+
+  /// Read where it is used, on the main thread: `NSScreen` must not be queried from a background one.
+  @MainActor
+  static var backingScaleFactor: CGFloat {
+    NSScreen.forPopup?.backingScaleFactor ?? 1
   }
 
   @MainActor
@@ -265,10 +295,21 @@ class HistoryItemDecorator: Identifiable, Hashable, HasVisibility {
     }
   }
 
+  /// Sizes both images on the calling thread, for callers that want the pixels right away.
+  ///
+  /// Rows go through `ensureThumbnailImage()` instead, which rasterizes off the main thread.
   @MainActor
   func sizeImages() {
     generatePreviewImage()
-    generateThumbnailImage()
+
+    guard let image = item.image else {
+      return
+    }
+
+    thumbnailImage = Perf.measure("decorator.thumbnailImage", zone: .popup) {
+      HistoryItemDecorator.rasterizeImage(image, HistoryItemDecorator.thumbnailImageSize,
+                                          HistoryItemDecorator.backingScaleFactor)
+    }
   }
 
   func highlight(_ query: String, _ ranges: [Range<String.Index>]) {

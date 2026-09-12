@@ -82,24 +82,60 @@ The first appearance costs **+127…+217 ms** (2.5–3.6×) and the extra time i
 | **AppKit steps, total** | **71 – 85** | **20 – 33** |
 | the rest = wait for the first presented frame | 138 – 144 | ~50 – 62 |
 
-Why the first frame is that expensive: every row that comes on screen for the first time runs
-`HistoryItemView.onAppear` → `ensureThumbnailImage()` → `image.resized(to:)`, and `NSImage.resized`
-returns a **lazily drawn** image — the rasterization happens on the first draw, inside the popup's
-first paint, on the main thread. A second visit to the same rows pays nothing (the resized image is
-cached on the decorator and the bitmap behind it is cached by `NSImage`), which is exactly the
-cold/warm gap above. The same mechanism shows up mid-sweep when rows are scrolled into view for the
-first time: in the Instruments trace `NSImage.resized` accounts for **131 ms of main-thread CPU in a
-single 0.33 s window** (14:33:57.71–58.04) — the cluster of four stalls (125 / 98 / 95 / 111 ms) in
-the second that reported fps 27.4 with 14 hitches — and `resample_horizontal_avx2` appears as self
-time in that same stall. The popup-open stall of the same trace (172 ms, ~10 s after launch,
-`wasVisible=false`) is **41 % allocation**, 17 % SwiftUI internals, 13 % ARC: first-time creation
-work, not rendering.
+**Thumbnail rasterization was the first suspect here and measurement rejected it.** Every row that
+comes on screen for the first time runs `HistoryItemView.onAppear` → `ensureThumbnailImage()` →
+`image.resized(to:)`, and that returns a **lazily drawn** image whose handler runs on the first draw,
+on the main thread. But the first open of the popup only ever asked for **3** thumbnails
+(`decorator.ensureThumbnailImage[calls=3]` in the second of the open, against ~25 visible rows), and
+they were assigned in a later frame anyway (the generator is a `Task`). Rasterizing them off the main
+thread (see the next subsection) changed the cold open from 209.4 / 228.7 / 299.3 ms to
+**206.9 / 214.4 ms** — i.e. not at all, with the AppKit step breakdown identical (71.3 ms).
+
+What the 138–144 ms first-frame wait actually is: first-time SwiftUI work — building and laying out
+the list's view tree — plus first-time window work. The popup-open stall of the Instruments trace
+(172 ms, ~10 s after launch, `wasVisible=false`) is **41 % allocation**, 17 % SwiftUI internals,
+13 % ARC, 4 % attribute graph and only 1.8 % our own code: creation, not rendering. The first-time
+half of that is visible in the AppKit steps too: `orderFrontRegardless` 0.9 → 11.5 ms and `becameKey`
+4.8 → 34.4 ms on the first open, i.e. the window's first ordering and its first responder chain.
+
+On the other hand the same lazy-thumbnail mechanism **is** what stalls a sweep: in the trace of a
+full sweep `NSImage.resized` accounted for **131 ms of main-thread CPU in a single 0.33 s window**
+(14:33:57.71–58.04) — the cluster of four stalls (125 / 98 / 95 / 111 ms) in the second that reported
+fps 27.4 with 14 hitches — with `resample_horizontal_avx2` as self time in the same stall. That part
+is fixed, see below.
 
 Two shorter runs that pressed `⌘⇧C` instead of clicking the icon, with `position=Cursor`, gave
 182.4 / 186.3 / 213.6 ms cold, and 231.8 ms when the open was requested 0.8 s after launch while the
 store was still loading. So the penalty is not specific to the click path, but `popupPosition` does
 change the absolute number (rule 11 in `AGENTS.md`) — cold and warm must be compared within one
 setting.
+
+### After the thumbnail fix — rasterization off the main thread
+
+`NSImage.rasterized(to:scale:)` draws the resized image into a bitmap right away (at the backing
+scale, so thumbnails stay crisp), and `HistoryItemDecorator.generateThumbnailImage()` awaits it inside
+a detached task, so a row's thumbnail is never rasterized on the main thread. `resized(to:)` itself
+is unchanged and still lazy; the preview image still goes through it.
+
+Measured on the same sweep scenario, with the same Instruments setup (Time Profiler + `os_signpost`):
+
+| | before | after |
+| --- | --- | --- |
+| main-thread CPU inside `NSImage.resized` | **131 ms** in one 0.33 s window | **35 ms** in one 35 ms window |
+| where that time is spent | row thumbnails | the **preview** image, drawn lazily on the main thread |
+| stalls ≥30 ms in the trace | 42 | 34 |
+| main-thread busy CPU in the trace | 4463 ms (68 s recording) | 2842 ms (46 s recording) |
+
+The last two rows are not directly comparable — the recordings differ in length and the sweep is
+only part of them — but the image cluster is: the remaining 35 ms carries
+`closure #1 in NSImage.resized(to:)` on the stack with no row-specific app frame, i.e. it is the
+preview panel's image, the one path this change deliberately left alone. The largest stalls of the
+new trace are elsewhere: 198 / 183 ms under `LargeTextPreviewView.makeScrollView(text:)` (the preview
+panel's `NSTextView` being built) and 192 ms under `FloatingPanel.toggle` (the popup open).
+
+Covered by `MaccyTests/ThumbnailRasterizationTests`: the rasterization runs off the main thread, the
+row receives an image backed by an `NSBitmapImageRep`, the aspect ratio and the requested scale
+survive, `resized(to:)` stays lazy, and an item without an image never rasterizes.
 
 Side observation from the same runs: in every fresh instance the preview panel toggles itself open
 ~1.9 s after `history.load`, with the popup still closed

@@ -33,4 +33,60 @@ extension NSImage {
       return true
     }
   }
+
+  /// Same as `resized(to:)`, but with the drawing already done, so a later draw is a plain blit.
+  ///
+  /// `resized(to:)` hands back a lazily drawn image: its handler only runs on the first draw. For a
+  /// history row that first draw happens inside the popup's first paint, on the main thread, which is
+  /// where the cold-start latency goes (see Zone 1, "Cold start", in `docs/performance-baseline.md`).
+  /// Rasterizing here instead lets the caller do that work off the main thread.
+  ///
+  /// `scale` is the backing scale factor to rasterize at. Callers resolve it on the main thread,
+  /// because `NSScreen` must not be queried from a background one.
+  func rasterized(to newSize: NSSize, scale: CGFloat) -> NSImage {
+    guard size.width > 0, size.height > 0 else {
+      return self
+    }
+
+    return resized(to: newSize).materialized(scale: scale)
+  }
+
+  /// Draws the image into a bitmap of its own size, so painting it later needs no drawing handler.
+  private func materialized(scale: CGFloat) -> NSImage {
+    let pointSize = size
+    let pixelsWide = Int((pointSize.width * scale).rounded())
+    let pixelsHigh = Int((pointSize.height * scale).rounded())
+
+    guard pixelsWide > 0, pixelsHigh > 0,
+          let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+          ),
+          let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+      return self
+    }
+
+    // The bitmap is `scale` times larger than the image, which is what keeps it crisp on Retina.
+    bitmap.size = pointSize
+
+    // `NSGraphicsContext.current` is per thread, so this is safe off the main thread.
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    context.imageInterpolation = .high
+    draw(in: NSRect(origin: .zero, size: pointSize), from: .zero, operation: .copy, fraction: 1)
+    context.flushGraphics()
+    NSGraphicsContext.restoreGraphicsState()
+
+    let image = NSImage(size: pointSize)
+    image.addRepresentation(bitmap)
+    return image
+  }
 }
