@@ -15,6 +15,17 @@
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
     <item>
+      <title>2.7.4</title>
+      <link>https://github.com/vernikr/Maccy/releases/tag/v2.7.4</link>
+      <sparkle:version>65</sparkle:version>
+      <sparkle:shortVersionString>2.7.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/vernikr/Maccy/releases/download/v2.7.4/Maccy-2.7.4.zip"
+                 sparkle:edSignature="CpbnNGbsvYOuXsrhMvT4f38vbQ6GiOu5b4CMgXAPILyy/BlZZm8oCf2HvnjqnecIPB4kOi6sCRP6dD+p5xgWAg=="
+                 length="4786466"
+                 type="application/octet-stream" />
+    </item>
+    <item>
       <title>2.7.3</title>
       <link>https://github.com/vernikr/Maccy/releases/tag/v2.7.3</link>
       <sparkle:version>64</sparkle:version>
