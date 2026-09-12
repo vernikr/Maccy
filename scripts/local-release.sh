@@ -144,12 +144,15 @@ step "Adding the entry to appcast.xml"
 run python3 scripts/update-appcast.py --version "$VERSION" --build "$BUILD" \
   --url "$ASSET_URL" --length "${LENGTH:-0}" --signature "${ED_SIGNATURE:-SIMULATED}"
 
-cat <<EOF
+# The delimiter is quoted on purpose: these lines mention commands in backticks, and an unquoted
+# heredoc would *run* them. (It did, once: the line naming `scripts/install.sh` installed the app.)
+# The few values that must be filled in are substituted with printf below the heredoc.
+cat <<'EOF'
 
 === Publish the feed
 
   git add appcast.xml
-  git commit -m "chore(release): publish $VERSION"
+  git commit -m "chore(release): publish <version>"
   git push origin master
 
 Then an installed build whose feed is this repository's appcast.xml finds the release on its own:
@@ -168,3 +171,6 @@ To watch an update land without waiting for the daily schedule, delete SULastChe
 relaunch the app: the check, the download, the EdDSA verification and the install-on-quit all show up
 in `log show --predicate 'subsystem CONTAINS "sparkle"'`. The new version is what starts next time.
 EOF
+
+# The heredoc is literal, so the version it names is filled in here.
+echo "  (this release is $VERSION, build $BUILD)"
