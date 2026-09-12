@@ -77,11 +77,26 @@ waits for it. And absolute timings move with machine load: the numbers above wer
 baseline rebuilt in the same session, which is why they are quoted together with their scenarios in
 [docs/performance-baseline.md](docs/performance-baseline.md) rather than as a promise.
 
+### Putting it on your Mac
+
+```sh
+scripts/install.sh
+```
+
+Maccy is sandboxed and its history lives in `~/Library/Containers/org.p0deje.Maccy`. An unsigned
+build — which is what a plain `xcodebuild` produces — is *not* sandboxed, so it would come up with an
+empty history in a different folder, which looks like data loss. The script signs the build (ad-hoc
+when you have no Apple certificate, which is enough for the sandbox to apply), **replaces
+`/Applications/Maccy.app` while keeping the container**, and backs both up first so a single command
+puts the old app back. Details, measurements and the ad-hoc caveats are in
+[docs/installing.md](docs/installing.md).
+
 Where to look next:
 
 * [docs/performance-baseline.md](docs/performance-baseline.md) — the measurements, the scenarios, and
 the wrong diagnoses along the way.
 * [docs/performance-profiling.md](docs/performance-profiling.md) — how to reproduce any of it.
+* [docs/installing.md](docs/installing.md) — how the fork gets onto a machine without losing data.
 * [docs/releasing.md](docs/releasing.md) — how a release of this fork is cut.
 * [CHANGELOG.md](CHANGELOG.md) — what changed on top of upstream 2.7.1.
 

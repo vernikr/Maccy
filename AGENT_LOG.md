@@ -791,3 +791,26 @@
       («refusing to allow an OAuth App to create or update workflow»). SSH-ключ работает, и пуш прошёл
       через `git push git@github.com:vernikr/Maccy.git master`. Если понадобится часто — выровнять
       `origin` на SSH-URL.
+
+## 64. Форк поставлен на машину вместо установленного Maccy
+
+64.1. Запрос: сделать так, чтобы вместо старой версии на машине постоянно была эта сборка.
+64.2. Разведка: установлен апстрим 2.7.1 (62), подписан Developer ID (team `MN3X4648SC`), **сэндбоксный**;
+      история и настройки — в `~/Library/Containers/org.p0deje.Maccy` (200 элементов), логин-итем
+      «Maccy» на месте, `/Applications/Maccy.app` принадлежит пользователю (права администратора не нужны).
+64.3. Ключевая находка: сборки `perf.sh` и все замеры — **без подписи**, а песочница применяется только
+      к подписанному приложению, поэтому такая сборка пишет в `~/Library/Application Support/Maccy`
+      (пусто), и история «пропадает». Проверено напрямую: подпись `codesign -s -` с
+      `Maccy/Maccy.entitlements` (flags `adhoc,runtime`) → тестовая копия с чужим bundle id создала
+      себе настоящий контейнер, несэндбоксный путь остался пустым.
+64.4. Сделан `scripts/install.sh`: сборка Release → подпись (Developer ID / Apple Development / ad-hoc)
+      → бэкап приложения и контейнера в `~/Library/Application Support/MaccyFork/backup-<ts>` → тихий
+      выход запущенного Maccy → `ditto` поверх `/Applications/Maccy.app` → `xattr -dr`, `lsregister -f`
+      → проверка подписи/версии/числа элементов → запуск. Есть `--dry-run`, `--no-build`, `--no-launch`.
+64.5. Установка выполнена и проверена: контейнер переиспользован (тот же inode 110234446), история 200
+      элементов, `~/Library/Application Support/Maccy` пуст, приложение **пишет** в контейнер (тестовый
+      `pbcopy` лёг в `ZHISTORYITEM`), логин-итем по-прежнему указывает на `/Applications/Maccy.app`.
+      Затем контейнер восстановлен из бэкапа — история вернулась ровно к исходным 200 элементам, то
+      есть путь отката проверен на живых данных.
+64.6. Зафиксировано в `docs/installing.md` (включая цену ad-hoc подписи), в блоке README
+      «Putting it on your Mac», в фактах и правиле 29 `AGENTS.md`.
