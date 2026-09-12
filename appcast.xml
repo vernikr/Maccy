@@ -14,5 +14,16 @@
     <link>https://raw.githubusercontent.com/vernikr/Maccy/master/appcast.xml</link>
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
+    <item>
+      <title>2.7.3</title>
+      <link>https://github.com/vernikr/Maccy/releases/tag/v2.7.3</link>
+      <sparkle:version>64</sparkle:version>
+      <sparkle:shortVersionString>2.7.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/vernikr/Maccy/releases/download/v2.7.3/Maccy-2.7.3.zip"
+                 sparkle:edSignature="Szm2aA/pq50dLDI3dOJM8JkLZXy219SROBNdcLLYL3roapMdpK/KzTqC083ldrmAXNLnRIPd589XdAzebD8oCQ=="
+                 length="4786178"
+                 type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
