@@ -118,18 +118,23 @@ where Content: View, Slideout: View {
       resizeDivider()
 
       VStack(spacing: 0) {
-        slideout()
-          .frame(
-            minWidth: controller.minimumSlideoutWidth,
-            idealWidth: !isSlideoutResizing ? controller.slideoutWidth.rounded() : nil,
-            maxWidth: !isSlideoutResizing ? controller.slideoutWidth.rounded() : nil,
-            alignment: .leading
-          )
-          .conditionalWidth(
-            controller.slideoutWidth.rounded(),
-            condition: isAnimating
-          )
-          .transition(.identity)
+        // While the slideout is closed it is clipped to a zero width, so building it only costs
+        // work: the preview parses the selected item on every selection change and its async image
+        // loading is restarted for each new item, none of which anyone can see.
+        if controller.state != .closed {
+          slideout()
+            .frame(
+              minWidth: controller.minimumSlideoutWidth,
+              idealWidth: !isSlideoutResizing ? controller.slideoutWidth.rounded() : nil,
+              maxWidth: !isSlideoutResizing ? controller.slideoutWidth.rounded() : nil,
+              alignment: .leading
+            )
+            .conditionalWidth(
+              controller.slideoutWidth.rounded(),
+              condition: isAnimating
+            )
+            .transition(.identity)
+        }
       }
       .environment(\.layoutDirection, .leftToRight)
       .fixedSize(

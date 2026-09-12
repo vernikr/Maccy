@@ -8,6 +8,14 @@ struct HistoryItemView: View {
   var index: Int
 
   private var selectionAppearance: SelectionAppearance {
+    // The connected corners only exist while a contiguous range is selected. Reading the neighbours'
+    // selection state outside of that would subscribe this row to the two rows next to it, and since
+    // each selection change updates the two rows it lands on, all four of them would be rebuilt on
+    // every hover event of a plain sweep.
+    guard appState.navigator.isMultiSelectActive else {
+      return .none
+    }
+
     let previousSelected = previous?.isSelected ?? false
     let nextSelected = next?.isSelected ?? false
     switch (previousSelected, nextSelected) {
